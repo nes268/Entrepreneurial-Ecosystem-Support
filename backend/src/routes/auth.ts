@@ -30,14 +30,14 @@ const refreshTokenSchema = Joi.object({
 // Generate JWT token
 const generateToken = (userId: string): string => {
   return jwt.sign({ userId }, config.jwt.secret, {
-    expiresIn: config.jwt.expiresIn as string,
+    expiresIn: config.jwt.expiresIn,
   });
 };
 
 // Generate refresh token
 const generateRefreshToken = (userId: string): string => {
   return jwt.sign({ userId, type: 'refresh' }, config.jwt.secret, {
-    expiresIn: config.jwt.refreshExpiresIn as string,
+    expiresIn: config.jwt.refreshExpiresIn,
   });
 };
 
@@ -75,7 +75,7 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
   const token = generateToken((user._id as any).toString());
   const refreshToken = generateRefreshToken((user._id as any).toString());
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Login successful',
     data: {
@@ -119,7 +119,7 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
   const token = generateToken((user._id as any).toString());
   const refreshToken = generateRefreshToken((user._id as any).toString());
 
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
     message: 'User registered successfully',
     data: {
@@ -159,7 +159,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
     const newToken = generateToken((user._id as any).toString());
     const newRefreshToken = generateRefreshToken((user._id as any).toString());
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Token refreshed successfully',
       data: {
@@ -168,7 +168,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
       },
     });
   } catch (error) {
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
       message: 'Invalid refresh token',
     });
@@ -240,7 +240,7 @@ router.put('/change-password', authenticate, asyncHandler(async (req: AuthReques
   user.password = newPassword;
   await user.save();
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Password changed successfully',
   });
