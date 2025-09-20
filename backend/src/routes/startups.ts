@@ -1,12 +1,16 @@
-import express from 'express';
-import { Startup } from '../models/Startup';
-import { User } from '../models/User';
+import express, { Request, Response } from 'express';
+import { Startup, IStartup } from '../models/Startup';
+import { User, IUser } from '../models/User';
 import { Document } from '../models/Document';
 import { Profile } from '../models/Profile';
 import { authenticate, authorize, optionalAuth } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import Joi from 'joi';
+
+interface AuthenticatedRequest extends Request {
+  user?: IUser; // Define the user property added by the authenticate middleware
+}
 
 const router = express.Router();
 
@@ -18,12 +22,42 @@ const createStartupSchema = Joi.object({
   type: Joi.string().valid('innovation', 'incubation').required(),
   trlLevel: Joi.number().min(1).max(9).required(),
   email: Joi.string().email().required(),
-  description: Joi.string().max(1000),
-  website: Joi.string().uri(),
-  linkedinProfile: Joi.string().uri(),
-  teamSize: Joi.number().min(1),
-  foundedYear: Joi.number().min(1900).max(new Date().getFullYear()),
-  location: Joi.string().max(100),
+  description: Joi.string().max(1000).allow('', null),
+  website: Joi.string().uri().allow('', null),
+  linkedinProfile: Joi.string().uri().allow('', null),
+  teamSize: Joi.number().min(1).allow(null),
+  foundedYear: Joi.number().min(1900).max(new Date().getFullYear()).allow(null),
+  location: Joi.string().max(100).allow('', null),
+  coFounderNames: Joi.array().items(Joi.string().max(100)).allow(null),
+  applicationStatus: Joi.string().valid('draft', 'submitted', 'under_review', 'approved', 'rejected').default('draft'),
+  
+  // Incubation Details
+  previouslyIncubated: Joi.boolean().default(false),
+  incubatorName: Joi.string().max(200).allow('', null),
+  incubatorLocation: Joi.string().max(200).allow('', null),
+  incubationDuration: Joi.string().max(100).allow('', null),
+  incubatorType: Joi.string().max(100).allow('', null),
+  incubationMode: Joi.string().valid('online', 'offline', 'hybrid').allow(null),
+  supportsReceived: Joi.array().items(Joi.string().max(200)).allow(null),
+
+  // Documentation (assuming these are URLs or references)
+  aadhaarDoc: Joi.string().uri().allow('', null),
+  incorporationCert: Joi.string().uri().allow('', null),
+  msmeCert: Joi.string().uri().allow('', null),
+  dpiitCert: Joi.string().uri().allow('', null),
+  mouPartnership: Joi.string().uri().allow('', null),
+
+  // Pitch Deck & Traction
+  businessDocuments: Joi.array().items(Joi.string().uri()).allow(null),
+  tractionDetails: Joi.string().max(2000).allow('', null),
+  balanceSheet: Joi.string().uri().allow('', null),
+
+  // Funding Information
+  fundingStage: Joi.string().max(100).allow('', null),
+  alreadyFunded: Joi.boolean().default(false),
+  fundingAmount: Joi.number().min(0).allow(null),
+  fundingSource: Joi.string().max(200).allow('', null),
+  fundingDate: Joi.date().iso().allow(null),
 });
 
 const updateStartupSchema = Joi.object({
@@ -33,16 +67,45 @@ const updateStartupSchema = Joi.object({
   type: Joi.string().valid('innovation', 'incubation'),
   trlLevel: Joi.number().min(1).max(9),
   email: Joi.string().email(),
-  description: Joi.string().max(1000),
-  website: Joi.string().uri(),
-  linkedinProfile: Joi.string().uri(),
-  teamSize: Joi.number().min(1),
-  foundedYear: Joi.number().min(1900).max(new Date().getFullYear()),
-  location: Joi.string().max(100),
+  description: Joi.string().max(1000).allow('', null),
+  website: Joi.string().uri().allow('', null),
+  linkedinProfile: Joi.string().uri().allow('', null),
+  teamSize: Joi.number().min(1).allow(null),
+  foundedYear: Joi.number().min(1900).max(new Date().getFullYear()).allow(null),
+  location: Joi.string().max(100).allow('', null),
+  coFounderNames: Joi.array().items(Joi.string().max(100)).allow(null),
   status: Joi.string().valid('pending', 'active', 'completed', 'dropout'),
   applicationStatus: Joi.string().valid('draft', 'submitted', 'under_review', 'approved', 'rejected'),
-  reviewNotes: Joi.string().max(1000),
-});
+  reviewNotes: Joi.string().max(1000).allow('', null),
+
+  // Incubation Details
+  previouslyIncubated: Joi.boolean(),
+  incubatorName: Joi.string().max(200).allow('', null),
+  incubatorLocation: Joi.string().max(200).allow('', null),
+  incubationDuration: Joi.string().max(100).allow('', null),
+  incubatorType: Joi.string().max(100).allow('', null),
+  incubationMode: Joi.string().valid('online', 'offline', 'hybrid').allow(null),
+  supportsReceived: Joi.array().items(Joi.string().max(200)).allow(null),
+
+  // Documentation
+  aadhaarDoc: Joi.string().uri().allow('', null),
+  incorporationCert: Joi.string().uri().allow('', null),
+  msmeCert: Joi.string().uri().allow('', null),
+  dpiitCert: Joi.string().uri().allow('', null),
+  mouPartnership: Joi.string().uri().allow('', null),
+
+  // Pitch Deck & Traction
+  businessDocuments: Joi.array().items(Joi.string().uri()).allow(null),
+  tractionDetails: Joi.string().max(2000).allow('', null),
+  balanceSheet: Joi.string().uri().allow('', null),
+
+  // Funding Information
+  fundingStage: Joi.string().max(100).allow('', null),
+  alreadyFunded: Joi.boolean(),
+  fundingAmount: Joi.number().min(0).allow(null),
+  fundingSource: Joi.string().max(200).allow('', null),
+  fundingDate: Joi.date().iso().allow(null),
+}).min(1); // At least one field is required for update
 
 const getStartupsQuerySchema = Joi.object({
   page: Joi.number().min(1).default(1),
@@ -60,7 +123,7 @@ const getStartupsQuerySchema = Joi.object({
 // @route   GET /api/startups
 // @desc    Get all startups
 // @access  Public (with optional auth for filtering)
-router.get('/', optionalAuth, validateQuery(getStartupsQuerySchema), asyncHandler(async (req, res) => {
+router.get('/', optionalAuth, validateQuery(getStartupsQuerySchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { page, limit, type, status, applicationStatus, sector, trlLevel, search, sortBy, sortOrder } = req.query as any;
   const skip = (page - 1) * limit;
 
@@ -119,7 +182,10 @@ router.get('/', optionalAuth, validateQuery(getStartupsQuerySchema), asyncHandle
 // @route   POST /api/startups
 // @desc    Create new startup application
 // @access  Private
-router.post('/', authenticate, validate(createStartupSchema), asyncHandler(async (req, res) => {
+router.post('/', authenticate, validate(createStartupSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !req.user._id) {
+    return res.status(401).json({ success: false, message: 'Not authorized to create startup' });
+  }
   const startupData = {
     ...req.body,
     userId: req.user._id,
@@ -143,7 +209,7 @@ router.post('/', authenticate, validate(createStartupSchema), asyncHandler(async
 // @route   GET /api/startups/:id
 // @desc    Get startup by ID
 // @access  Public
-router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
+router.get('/:id', optionalAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const startup = await Startup.findById(req.params.id)
     .populate('userId', 'fullName email username')
     .populate('assignedMentor', 'name role email')
@@ -178,8 +244,8 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
 // @route   PUT /api/startups/:id
 // @desc    Update startup
 // @access  Private
-router.put('/:id', authenticate, validate(updateStartupSchema), asyncHandler(async (req, res) => {
-  const startup = await Startup.findById(req.params.id);
+router.put('/:id', authenticate, validate(updateStartupSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const startup = await Startup.findById(req.params.id) as IStartup;
   
   if (!startup) {
     return res.status(404).json({
@@ -188,12 +254,30 @@ router.put('/:id', authenticate, validate(updateStartupSchema), asyncHandler(asy
     });
   }
 
-  // Check if user can update this startup
-  if (req.user.role !== 'admin' && req.user._id.toString() !== startup.userId.toString()) {
+  if (!req.user || (req.user.role !== 'admin' && req.user._id.toString() !== startup.userId.toString())) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
     });
+  }
+
+  // Handle funding history if new funding info is provided
+  if (req.body.alreadyFunded && req.body.fundingAmount && req.body.fundingSource && req.body.fundingDate && req.body.fundingStage) {
+    if (!startup.fundingHistory) {
+      startup.fundingHistory = []; // Initialize if undefined
+    }
+    startup.fundingHistory.push({
+      amount: req.body.fundingAmount,
+      source: req.body.fundingSource,
+      date: new Date(req.body.fundingDate),
+      stage: req.body.fundingStage,
+    });
+    // Remove temporary funding fields from req.body to avoid direct assignment
+    delete req.body.fundingAmount;
+    delete req.body.fundingSource;
+    delete req.body.fundingDate;
+    delete req.body.fundingStage;
+    delete req.body.alreadyFunded;
   }
 
   // Update startup
@@ -217,7 +301,7 @@ router.put('/:id', authenticate, validate(updateStartupSchema), asyncHandler(asy
 // @route   DELETE /api/startups/:id
 // @desc    Delete startup
 // @access  Private
-router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
+router.delete('/:id', authenticate, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const startup = await Startup.findById(req.params.id);
   
   if (!startup) {
@@ -227,8 +311,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if user can delete this startup
-  if (req.user.role !== 'admin' && req.user._id.toString() !== startup.userId.toString()) {
+  if (!req.user || (req.user.role !== 'admin' && req.user._id.toString() !== startup.userId.toString())) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -246,7 +329,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
 // @route   GET /api/startups/with-documents
 // @desc    Get startups with their documents (admin only)
 // @access  Private/Admin
-router.get('/with-documents', authenticate, authorize('admin'), validateQuery(getStartupsQuerySchema), asyncHandler(async (req, res) => {
+router.get('/with-documents', authenticate, authorize('admin'), validateQuery(getStartupsQuerySchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const { page, limit, type, status, applicationStatus, sector, trlLevel, search, sortBy, sortOrder } = req.query as any;
   const skip = (page - 1) * limit;
 
@@ -396,7 +479,7 @@ router.get('/with-documents', authenticate, authorize('admin'), validateQuery(ge
 // @route   GET /api/startups/stats/overview
 // @desc    Get startup statistics overview
 // @access  Public
-router.get('/stats/overview', asyncHandler(async (req, res) => {
+router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) => {
   const totalStartups = await Startup.countDocuments();
   const innovationStartups = await Startup.countDocuments({ type: 'innovation' });
   const incubationStartups = await Startup.countDocuments({ type: 'incubation' });

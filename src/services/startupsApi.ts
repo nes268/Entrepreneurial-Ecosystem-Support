@@ -38,6 +38,25 @@ interface GetStartupsWithDocumentsParams {
   limit?: number;
 }
 
+// New interfaces for creating and updating a startup
+interface CreateStartupPayload {
+  name: string;
+  founder: string;
+  sector: string;
+  type: 'innovation' | 'incubation';
+  email: string; // Assuming email is collected during profile setup
+  description?: string;
+  website?: string;
+  linkedinProfile?: string;
+  teamSize?: number;
+  foundedYear?: number;
+  location?: string;
+  trlLevel: number;
+  coFounderNames?: string[]; // Added from EnterpriseInfo
+}
+
+interface UpdateStartupPayload extends Partial<CreateStartupPayload> {}
+
 class StartupsApi {
   async getStartupsWithDocuments(params: GetStartupsWithDocumentsParams = {}): Promise<{
     startups: StartupWithDocuments[];
@@ -77,7 +96,51 @@ class StartupsApi {
 
     return data.data;
   }
+
+  async createStartupProfile(startupData: CreateStartupPayload): Promise<StartupWithDocuments> {
+    const response = await fetch('/api/startups', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(startupData),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to create startup profile');
+    }
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to create startup profile');
+    }
+    return data.data;
+  }
+
+  async updateStartupProfile(id: string, startupData: UpdateStartupPayload): Promise<StartupWithDocuments> {
+    const response = await fetch(`/api/startups/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(startupData),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to update startup profile');
+    }
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to update startup profile');
+    }
+    return data.data;
+  }
 }
 
 export const startupsApi = new StartupsApi();
-export type { StartupWithDocuments, StartupDocument, GetStartupsWithDocumentsParams };
+export type { StartupWithDocuments, StartupDocument, GetStartupsWithDocumentsParams, CreateStartupPayload, UpdateStartupPayload };

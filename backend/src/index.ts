@@ -17,6 +17,7 @@ import investorRoutes from './routes/investors';
 import eventRoutes from './routes/events';
 import documentRoutes from './routes/documents';
 import reportRoutes from './routes/reports';
+import adminRoutes from './routes/admin'; // Import admin routes
 
 // Load environment variables
 dotenv.config();
@@ -74,6 +75,7 @@ app.use('/api/investors', investorRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/admin', adminRoutes); // Add admin routes
 
 // Root endpoint
 app.get('/', (req, res) => {
