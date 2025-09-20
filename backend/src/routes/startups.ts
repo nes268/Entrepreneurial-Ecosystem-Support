@@ -404,6 +404,8 @@ router.get('/stats/overview', asyncHandler(async (req, res) => {
   const approvedStartups = await Startup.countDocuments({ applicationStatus: 'approved' });
   const pendingStartups = await Startup.countDocuments({ applicationStatus: 'pending' });
 
+  const dropoutStartups = await Startup.countDocuments({ status: 'dropout' });
+
   // TRL Level distribution
   const trlDistribution = await Startup.aggregate([
     { $group: { _id: '$trlLevel', count: { $sum: 1 } } },

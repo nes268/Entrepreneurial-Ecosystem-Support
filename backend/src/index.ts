@@ -17,6 +17,7 @@ import investorRoutes from './routes/investors';
 import eventRoutes from './routes/events';
 import documentRoutes from './routes/documents';
 import reportRoutes from './routes/reports';
+import profileRoutes from './routes/profile';
 
 // Load environment variables
 dotenv.config();
@@ -74,6 +75,7 @@ app.use('/api/investors', investorRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/profile', profileRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
