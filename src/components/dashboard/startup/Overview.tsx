@@ -1,15 +1,7 @@
 import React from 'react';
 import Card from '../../ui/Card';
 import { 
-  TrendingUp, 
-  Users, 
-  Calendar, 
-  FileText, 
-  ArrowRight,
   CheckCircle,
-  Clock,
-  AlertCircle,
-  Loader2,
   X
 } from 'lucide-react';
 import { useInvestors } from '../../../hooks/useInvestors';
@@ -47,22 +39,6 @@ const Overview: React.FC = () => {
     }
   };
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'meeting':
-        return <Calendar className="h-4 w-4" />;
-      case 'deadline':
-        return <AlertCircle className="h-4 w-4" />;
-      case 'session':
-        return <Users className="h-4 w-4" />;
-      case 'milestone':
-        return <TrendingUp className="h-4 w-4" />;
-      case 'funding':
-        return <FileText className="h-4 w-4" />;
-      default:
-        return <AlertCircle className="h-4 w-4" />;
-    }
-  };
 
   // Use funding stages from context instead of hardcoded milestones
   const milestones = fundingStages.map(stage => ({
@@ -72,16 +48,6 @@ const Overview: React.FC = () => {
     progress: stage.progress
   }));
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-5 w-5 text-emerald-400" />;
-      case 'current':
-        return <Clock className="h-5 w-5 text-blue-400" />;
-      default:
-        return <div className="h-5 w-5 rounded-full border-2 border-gray-600"></div>;
-    }
-  };
 
 
   const getProgressColor = (status: string) => {
@@ -106,8 +72,7 @@ const Overview: React.FC = () => {
       {/* Upcoming Alerts */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-white flex items-center">
-            <AlertCircle className="h-5 w-5 mr-2 text-blue-400" />
+          <h2 className="text-xl font-semibold text-white">
             Upcoming Alerts
           </h2>
           <div className="text-sm text-gray-400">
@@ -117,7 +82,6 @@ const Overview: React.FC = () => {
         
         {alerts.length === 0 ? (
           <div className="text-center py-8">
-            <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
             <h3 className="text-lg font-medium text-gray-300 mb-2">No upcoming alerts</h3>
             <p className="text-gray-400">Alerts will appear here when admin actions occur</p>
           </div>
@@ -126,8 +90,7 @@ const Overview: React.FC = () => {
             {alerts.map((alert) => (
               <div key={alert.id} className="bg-gray-700/50 rounded-lg p-4 border border-gray-600 hover:border-gray-500 transition-colors">
                 <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    {getTypeIcon(alert.type)}
+                  <div>
                     <h3 className="text-white font-medium">{alert.title}</h3>
                   </div>
                   <div className="flex items-center space-x-1">
@@ -180,8 +143,7 @@ const Overview: React.FC = () => {
         {/* Milestones Timeline */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-white flex items-center">
-              <TrendingUp className="h-5 w-5 mr-2 text-cyan-400" />
+            <h2 className="text-xl font-semibold text-white">
               Journey
             </h2>
             <div className="text-sm text-gray-400">
@@ -202,7 +164,6 @@ const Overview: React.FC = () => {
                       ? 'bg-blue-400 border-blue-400'
                       : 'bg-gray-800 border-gray-600'
                   }`}>
-                    {getStatusIcon(milestone.status)}
                   </div>
 
                   <div className="flex-1 flex items-center justify-between">
@@ -242,7 +203,6 @@ const Overview: React.FC = () => {
           {investorsError && (
             <div className="mb-4 p-3 bg-red-900/20 border border-red-500/50 rounded-lg">
               <div className="flex items-center space-x-2">
-                <AlertCircle className="h-4 w-4 text-red-400" />
                 <span className="text-red-300 text-sm">{investorsError}</span>
               </div>
             </div>
@@ -251,13 +211,11 @@ const Overview: React.FC = () => {
           {investorsLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="flex items-center space-x-3">
-                <Loader2 className="h-5 w-5 animate-spin text-cyan-400" />
                 <span className="text-gray-400">Loading investors...</span>
               </div>
             </div>
           ) : investors.length === 0 ? (
             <div className="text-center py-8">
-              <Users className="h-12 w-12 text-gray-400 mx-auto mb-3" />
               <h3 className="text-lg font-medium text-gray-300 mb-2">No investors available</h3>
               <p className="text-gray-400">Investors will appear here once they are added by administrators</p>
             </div>
