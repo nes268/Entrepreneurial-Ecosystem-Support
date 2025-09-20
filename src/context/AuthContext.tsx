@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types';
+import { authApi } from '../services/api';
 import { useNotifications } from './NotificationsContext';
 import { useApplications } from './ApplicationsContext';
 
@@ -45,14 +46,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     console.log('AuthContext useEffect running');
-    // Simulate checking for existing session
+    // Check for existing session
     const savedUser = localStorage.getItem('user');
+    const savedToken = localStorage.getItem('token');
     console.log('Saved user:', savedUser);
     
-    // For development: Clear any existing user to force login page
-    if (savedUser) {
-      console.log('Found saved user, clearing for development...');
-      localStorage.removeItem('user');
+    if (savedUser && savedToken) {
+      try {
+        const userData = JSON.parse(savedUser);
+        setUser(userData);
+        console.log('Restored user session:', userData);
+      } catch (error) {
+        console.error('Error parsing saved user:', error);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+      }
     }
     
     setIsLoading(false);
@@ -61,93 +69,119 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, _password: string) => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Mock user data - in real app, this would come from API
-    const mockUser: User = {
-      id: '1',
-      fullName: 'John Doe',
-      email,
-      username: email.split('@')[0],
-      role: email.includes('admin') ? 'admin' : 'enterprise',
-      profileComplete: !email.includes('new'),
-      createdAt: new Date().toISOString(),
-    };
-    
-    setUser(mockUser);
-    localStorage.setItem('user', JSON.stringify(mockUser));
+    try {
+      const response = await authApi.login(email, password);
+      const userData: User = {
+        id: response.user._id,
+        fullName: response.user.fullName,
+        email: response.user.email,
+        username: response.user.username,
+        role: response.user.role,
+        profileComplete: response.user.profileComplete,
+        createdAt: response.user.createdAt,
+      };
+      
+      setUser(userData);
+      
+      // Create notification for admin when new user logs in
+      if (notificationsContext && userData.role !== 'admin') {
+        notificationsContext.createSignupNotification(
+          userData.fullName,
+          userData.email,
+          userData.role
+        );
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
     setIsLoading(false);
   };
 
   const signup = async (data: SignupData) => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
     
-    const newUser: User = {
-      id: Date.now().toString(),
-      fullName: data.fullName,
-      email: data.email,
-      username: data.username,
-      role: data.role,
-      profileComplete: false,
-      createdAt: new Date().toISOString(),
-    };
-    
-    setUser(newUser);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    
-    // Create notification for admin when new user signs up
-    if (notificationsContext) {
-      notificationsContext.createSignupNotification(
-        data.fullName,
-        data.email,
-        data.role
-      );
+    try {
+      const response = await authApi.signup(data);
+      const userData: User = {
+        id: response.user._id,
+        fullName: response.user.fullName,
+        email: response.user.email,
+        username: response.user.username,
+        role: response.user.role,
+        profileComplete: response.user.profileComplete,
+        createdAt: response.user.createdAt,
+      };
+      
+      setUser(userData);
+      
+      // Create notification for admin when new user signs up
+      if (notificationsContext) {
+        notificationsContext.createSignupNotification(
+          data.fullName,
+          data.email,
+          data.role
+        );
+      }
+      
+      // Create application for enterprise users (startups)
+      if (data.role === 'enterprise' && applicationsContext) {
+        // Generate a random TRL level between 1-9
+        const trlLevel = Math.floor(Math.random() * 9) + 1;
+        
+        // Determine application type based on TRL level
+        const type = trlLevel <= 5 ? 'incubation' : 'innovation';
+        
+        // Generate a startup name if not provided
+        const startupName = data.fullName.includes(' ') 
+          ? `${data.fullName.split(' ')[0]}'s Startup`
+          : `${data.fullName}'s Startup`;
+        
+        // Generate a sector based on email domain or random
+        const sectors = ['CleanTech', 'HealthTech', 'EdTech', 'FinTech', 'AgriTech', 'AI/ML', 'IoT', 'Blockchain'];
+        const sector = sectors[Math.floor(Math.random() * sectors.length)];
+        
+        applicationsContext.addApplication({
+          name: startupName,
+          founder: data.fullName,
+          sector: sector,
+          type: type,
+          trlLevel: trlLevel,
+          email: data.email,
+          submissionDate: new Date().toISOString().split('T')[0]
+        });
+      }
+    } catch (error) {
+      console.error('Signup error:', error);
+      throw error;
     }
-    
-    // Create application for enterprise users (startups)
-    if (data.role === 'enterprise' && applicationsContext) {
-      // Generate a random TRL level between 1-9
-      const trlLevel = Math.floor(Math.random() * 9) + 1;
-      
-      // Determine application type based on TRL level
-      const type = trlLevel <= 5 ? 'incubation' : 'innovation';
-      
-      // Generate a startup name if not provided
-      const startupName = data.fullName.includes(' ') 
-        ? `${data.fullName.split(' ')[0]}'s Startup`
-        : `${data.fullName}'s Startup`;
-      
-      // Generate a sector based on email domain or random
-      const sectors = ['CleanTech', 'HealthTech', 'EdTech', 'FinTech', 'AgriTech', 'AI/ML', 'IoT', 'Blockchain'];
-      const sector = sectors[Math.floor(Math.random() * sectors.length)];
-      
-      applicationsContext.addApplication({
-        name: startupName,
-        founder: data.fullName,
-        sector: sector,
-        type: type,
-        trlLevel: trlLevel,
-        email: data.email,
-        submissionDate: new Date().toISOString().split('T')[0]
-      });
-    }
-    
     setIsLoading(false);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await authApi.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
     setUser(null);
-    localStorage.removeItem('user');
   };
 
   const updateUser = (updates: Partial<User>) => {
     if (user) {
       const updatedUser = { ...user, ...updates };
       setUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      // Update localStorage
+      const savedData = localStorage.getItem('user');
+      if (savedData) {
+        const currentData = JSON.parse(savedData);
+        localStorage.setItem('user', JSON.stringify({
+          ...currentData,
+          ...updates
+        }));
+      }
     }
   };
 
