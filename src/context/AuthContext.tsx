@@ -48,9 +48,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Simulate checking for existing session
     const savedUser = localStorage.getItem('user');
     console.log('Saved user:', savedUser);
+    
+    // For development: Clear any existing user to force login page
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      console.log('Found saved user, clearing for development...');
+      localStorage.removeItem('user');
     }
+    
     setIsLoading(false);
     console.log('AuthContext loading set to false');
   }, []);

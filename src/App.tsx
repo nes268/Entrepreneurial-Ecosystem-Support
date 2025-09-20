@@ -24,6 +24,7 @@ import AdminReports from './components/dashboard/admin/Reports';
 import AdminMentors from './components/dashboard/admin/MentorManage';
 import AdminInvestors from './components/dashboard/admin/InvestorManage';
 import AdminStartups from './components/dashboard/admin/StartupManage';
+import AdminDataRoom from './components/dashboard/admin/AdminDataRoom';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -124,7 +125,7 @@ function App() {
             <Route path="mentors" element={<AdminMentors />} />
             <Route path="investors" element={<AdminInvestors />} />
             <Route path="startups" element={<AdminStartups />} />
-            <Route path="data-room" element={<DataRoom />} />
+            <Route path="data-room" element={<AdminDataRoom />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           
