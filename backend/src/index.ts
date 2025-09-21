@@ -10,15 +10,16 @@ import { notFound } from './middleware/notFound';
 
 // Import routes
 import authRoutes from './routes/auth';
-import userRoutes from './routes/users';
-import startupRoutes from './routes/startups';
-import mentorRoutes from './routes/mentors';
-import investorRoutes from './routes/investors';
 import eventRoutes from './routes/events';
 import documentRoutes from './routes/documents';
-import reportRoutes from './routes/reports';
-import profileRoutes from './routes/profile';
-import adminRoutes from './routes/admin';
+// TODO: Migrate remaining routes to Prisma and re-enable
+import userRoutes from './routes/users';
+import startupRoutes from './routes/startups';
+// import mentorRoutes from './routes/mentors';
+// import investorRoutes from './routes/investors';
+// import reportRoutes from './routes/reports';
+// import profileRoutes from './routes/profile';
+// import adminRoutes from './routes/admin';
 
 // Load environment variables
 dotenv.config();
@@ -26,7 +27,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Connect to both MongoDB and PostgreSQL
+// Connect to PostgreSQL only
 connectDB();
 
 // Security middleware
@@ -67,24 +68,25 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes
+// API routes (migrated)
 app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/startups', startupRoutes);
-app.use('/api/mentors', mentorRoutes);
-app.use('/api/investors', investorRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/documents', documentRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/profile', profileRoutes);
-app.use('/api/admin', adminRoutes);
+
+// TODO: Re-enable after migration
+app.use('/api/users', userRoutes);
+app.use('/api/startups', startupRoutes);
+// app.use('/api/mentors', mentorRoutes);
+// app.use('/api/investors', investorRoutes);
+// app.use('/api/reports', reportRoutes);
+// app.use('/api/profile', profileRoutes);
+// app.use('/api/admin', adminRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    message: 'CITBIF Backend API',
+    message: 'CITBIF Backend API (PostgreSQL only)',
     version: '1.0.0',
-    documentation: '/api/docs',
     health: '/health',
   });
 });
@@ -98,7 +100,6 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV}`);
   console.log(`🌐 CORS Origin: ${process.env.CORS_ORIGIN}`);
-  console.log(`📚 API Documentation: http://localhost:${PORT}/api/docs`);
 });
 
 export default app;

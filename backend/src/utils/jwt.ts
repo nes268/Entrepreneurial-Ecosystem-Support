@@ -1,10 +1,8 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { config } from '../config/env';
-import { pgPool } from '../config/database';
-import { IUser } from '../models/User';
-import { IAdmin } from '../models/Admin';
-import { JwtPayload, RefreshTokenPayload, UserRole, AdminLevel } from '../types';
+import prisma from '../config/prisma';
+import { JwtPayload, RefreshTokenPayload, UserRole } from '../types';
 
 export interface TokenPair {
   accessToken: string;
@@ -22,15 +20,15 @@ export interface TokenValidationResult {
 /**
  * Generate access token for user
  */
+type MinimalUser = { id: string; email: string; role: UserRole };
+
 export const generateAccessToken = (
-  user: IUser, 
-  admin?: IAdmin
+  user: MinimalUser
 ): string => {
   const payload: JwtPayload = {
-    userId: user._id.toString(),
+    userId: user.id,
     email: user.email,
     role: user.role,
-    adminLevel: admin?.adminLevel,
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + (config.jwt.expiresIn || 24 * 60 * 60), // 24 hours default
   };
@@ -58,24 +56,16 @@ export const generateRefreshToken = async (userId: string): Promise<string> => {
     algorithm: 'HS256',
   });
 
-  // Store refresh token in PostgreSQL
+// Store refresh token session in PostgreSQL via Prisma
   try {
-    // First get the pg_user id
-    const userResult = await pgPool.query(
-      'SELECT id FROM pg_users WHERE mongo_user_id = $1',
-      [userId]
-    );
-
-    if (userResult.rows.length > 0) {
-      const pgUserId = userResult.rows[0].id;
-      
-      // Insert refresh token session
-      await pgPool.query(
-        `INSERT INTO user_sessions (user_id, refresh_token, expires_at)
-         VALUES ($1, $2, $3)`,
-        [pgUserId, tokenId, expiresAt]
-      );
-    }
+    await prisma.session.create({
+      data: {
+        userId,
+        sessionToken: tokenId,
+        refreshToken: tokenId,
+        expiresAt,
+      },
+    });
   } catch (error) {
     console.error('Error storing refresh token:', error);
     // Don't throw - token is still valid even if storage fails
@@ -88,11 +78,10 @@ export const generateRefreshToken = async (userId: string): Promise<string> => {
  * Generate both access and refresh tokens
  */
 export const generateTokenPair = async (
-  user: IUser, 
-  admin?: IAdmin
+  user: MinimalUser
 ): Promise<TokenPair> => {
-  const accessToken = generateAccessToken(user, admin);
-  const refreshToken = await generateRefreshToken(user._id.toString());
+  const accessToken = generateAccessToken(user);
+  const refreshToken = await generateRefreshToken(user.id);
 
   return {
     accessToken,
@@ -129,16 +118,15 @@ export const validateRefreshToken = async (token: string): Promise<TokenValidati
   try {
     const payload = jwt.verify(token, config.jwt.refreshSecret || config.jwt.secret) as RefreshTokenPayload;
     
-    // Check if refresh token exists in database and is not expired
-    const sessionResult = await pgPool.query(
-      `SELECT s.*, u.mongo_user_id 
-       FROM user_sessions s
-       JOIN pg_users u ON s.user_id = u.id
-       WHERE s.refresh_token = $1 AND s.expires_at > NOW()`,
-      [payload.tokenId]
-    );
+// Check if refresh token exists in database and is not expired
+    const session = await prisma.session.findFirst({
+      where: {
+        refreshToken: payload.tokenId,
+        expiresAt: { gt: new Date() },
+      },
+    });
 
-    if (sessionResult.rows.length === 0) {
+    if (!session) {
       return {
         valid: false,
         error: 'Refresh token not found or expired',
@@ -172,12 +160,8 @@ export const validateRefreshToken = async (token: string): Promise<TokenValidati
  */
 export const revokeRefreshToken = async (tokenId: string): Promise<boolean> => {
   try {
-    const result = await pgPool.query(
-      'DELETE FROM user_sessions WHERE refresh_token = $1',
-      [tokenId]
-    );
-    
-    return result.rowCount > 0;
+    const result = await prisma.session.deleteMany({ where: { refreshToken: tokenId } });
+    return result.count > 0;
   } catch (error) {
     console.error('Error revoking refresh token:', error);
     return false;
@@ -189,24 +173,8 @@ export const revokeRefreshToken = async (tokenId: string): Promise<boolean> => {
  */
 export const revokeAllUserTokens = async (userId: string): Promise<boolean> => {
   try {
-    // Get pg_user id first
-    const userResult = await pgPool.query(
-      'SELECT id FROM pg_users WHERE mongo_user_id = $1',
-      [userId]
-    );
-
-    if (userResult.rows.length === 0) {
-      return false;
-    }
-
-    const pgUserId = userResult.rows[0].id;
-    
-    const result = await pgPool.query(
-      'DELETE FROM user_sessions WHERE user_id = $1',
-      [pgUserId]
-    );
-    
-    return result.rowCount > 0;
+    const result = await prisma.session.deleteMany({ where: { userId } });
+    return result.count > 0;
   } catch (error) {
     console.error('Error revoking all user tokens:', error);
     return false;
@@ -218,12 +186,9 @@ export const revokeAllUserTokens = async (userId: string): Promise<boolean> => {
  */
 export const cleanupExpiredTokens = async (): Promise<number> => {
   try {
-    const result = await pgPool.query(
-      'DELETE FROM user_sessions WHERE expires_at <= NOW()'
-    );
-    
-    console.log(`Cleaned up ${result.rowCount} expired tokens`);
-    return result.rowCount || 0;
+    const result = await prisma.session.deleteMany({ where: { expiresAt: { lte: new Date() } } });
+    console.log(`Cleaned up ${result.count} expired tokens`);
+    return result.count || 0;
   } catch (error) {
     console.error('Error cleaning up expired tokens:', error);
     return 0;
@@ -234,34 +199,25 @@ export const cleanupExpiredTokens = async (): Promise<number> => {
  * Get user's active sessions
  */
 export const getUserActiveSessions = async (userId: string): Promise<Array<{
-  id: number;
-  created_at: Date;
-  ip_address?: string;
-  user_agent?: string;
-  expires_at: Date;
+  id: string;
+  createdAt: Date;
+  ipAddress?: string;
+  userAgent?: string;
+  expiresAt: Date;
 }>> => {
   try {
-    // Get pg_user id first
-    const userResult = await pgPool.query(
-      'SELECT id FROM pg_users WHERE mongo_user_id = $1',
-      [userId]
-    );
-
-    if (userResult.rows.length === 0) {
-      return [];
-    }
-
-    const pgUserId = userResult.rows[0].id;
-    
-    const result = await pgPool.query(
-      `SELECT id, created_at, ip_address, user_agent, expires_at 
-       FROM user_sessions 
-       WHERE user_id = $1 AND expires_at > NOW()
-       ORDER BY created_at DESC`,
-      [pgUserId]
-    );
-    
-    return result.rows;
+    const sessions = await prisma.session.findMany({
+      where: { userId, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, createdAt: true, ipAddress: true, userAgent: true, expiresAt: true },
+    });
+    return sessions.map(s => ({
+      id: s.id,
+      createdAt: s.createdAt,
+      ipAddress: s.ipAddress || undefined,
+      userAgent: s.userAgent || undefined,
+      expiresAt: s.expiresAt,
+    }));
   } catch (error) {
     console.error('Error getting user active sessions:', error);
     return [];

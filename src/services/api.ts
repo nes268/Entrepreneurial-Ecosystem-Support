@@ -1,10 +1,9 @@
 
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
-
+// Use relative base URL so Vite dev proxy and production reverse proxies work seamlessly
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
