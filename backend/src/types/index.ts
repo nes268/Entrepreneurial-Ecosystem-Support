@@ -1,5 +1,6 @@
 // Re-export all types from models for easy access
 export * from '../models/User';
+export * from '../models/Admin';
 export * from '../models/Profile';
 export * from '../models/Startup';
 export * from '../models/Mentor';
@@ -34,8 +35,36 @@ export interface PaginationQuery {
   search?: string;
 }
 
+import { Request } from 'express';
+import { IUser } from '../models/User';
+import { IAdmin } from '../models/Admin';
+
 export interface AuthRequest extends Request {
-  user?: any;
+  user?: IUser;
+  admin?: IAdmin;
+  userId?: string;
+  adminId?: string;
+}
+
+// User roles and permissions
+export type UserRole = 'individual' | 'enterprise' | 'admin';
+export type AdminLevel = 'super_admin' | 'admin' | 'moderator';
+
+// JWT Payload types
+export interface JwtPayload {
+  userId: string;
+  email: string;
+  role: UserRole;
+  adminLevel?: AdminLevel;
+  iat: number;
+  exp: number;
+}
+
+export interface RefreshTokenPayload {
+  userId: string;
+  tokenId: string;
+  iat: number;
+  exp: number;
 }
 
 export interface FileUpload {

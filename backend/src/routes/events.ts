@@ -1,10 +1,19 @@
+<<<<<<< HEAD
+import express, { Request, Response } from 'express';
+=======
 import express from 'express';
 import mongoose from 'mongoose';
+>>>>>>> 10cc61c92e5783a9588c402816970bd7bd9c5fe2
 import { Event } from '../models/Event';
-import { authenticate, authorize, optionalAuth } from '../middleware/auth';
+import { authenticate, authorize, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
+import { IUser } from '../models/User';
 import Joi from 'joi';
+
+interface OptionalAuthRequest extends Request {
+  user?: IUser;
+}
 
 const router = express.Router();
 
@@ -75,6 +84,9 @@ const getEventsQuerySchema = Joi.object({
 // @route   GET /api/events
 // @desc    Get all events
 // @access  Public
+<<<<<<< HEAD
+router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
+=======
 
 // @route   GET /api/events/:id/participants
 // @desc    Get participants for an event
@@ -92,6 +104,7 @@ router.get('/:id/participants', authenticate, authorize('admin'), asyncHandler(a
 }));
 
 router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(async (req, res) => {
+>>>>>>> 10cc61c92e5783a9588c402816970bd7bd9c5fe2
   const { page, limit, category, eventType, status, isActive, isFree, dateFrom, dateTo, search, sortBy, sortOrder } = req.query as any;
   const skip = (page - 1) * limit;
 
@@ -170,7 +183,7 @@ router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(
 // @route   POST /api/events
 // @desc    Create new event
 // @access  Private
-router.post('/', authenticate, validate(createEventSchema), asyncHandler(async (req, res) => {
+router.post('/', authenticate, validate(createEventSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   const eventData = {
     ...req.body,
     userId: req.user._id,
@@ -194,7 +207,7 @@ router.post('/', authenticate, validate(createEventSchema), asyncHandler(async (
 // @route   GET /api/events/:id
 // @desc    Get event by ID
 // @access  Public
-router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
+router.get('/:id', optionalAuth, asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
   const event = await Event.findById(req.params.id)
     .populate('userId', 'fullName email username')
     .populate('attendees', 'fullName email username');
@@ -227,7 +240,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
 // @route   PUT /api/events/:id
 // @desc    Update event
 // @access  Private
-router.put('/:id', authenticate, validate(updateEventSchema), asyncHandler(async (req, res) => {
+router.put('/:id', authenticate, validate(updateEventSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   const event = await Event.findById(req.params.id);
   
   if (!event) {
@@ -264,7 +277,7 @@ router.put('/:id', authenticate, validate(updateEventSchema), asyncHandler(async
 // @route   DELETE /api/events/:id
 // @desc    Delete event
 // @access  Private
-router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
+router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
   const event = await Event.findById(req.params.id);
   
   if (!event) {
@@ -293,7 +306,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
 // @route   POST /api/events/:id/register
 // @desc    Register for event
 // @access  Private
-router.post('/:id/register', authenticate, asyncHandler(async (req, res) => {
+router.post('/:id/register', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
   const event = await Event.findById(req.params.id);
   
   if (!event) {

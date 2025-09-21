@@ -18,7 +18,7 @@ import eventRoutes from './routes/events';
 import documentRoutes from './routes/documents';
 import reportRoutes from './routes/reports';
 import profileRoutes from './routes/profile';
-import adminRoutes from './routes/admin'; // Import admin routes
+import adminRoutes from './routes/admin';
 
 // Load environment variables
 dotenv.config();
@@ -26,7 +26,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Connect to MongoDB
+// Connect to both MongoDB and PostgreSQL
 connectDB();
 
 // Security middleware
@@ -77,7 +77,7 @@ app.use('/api/events', eventRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/admin', adminRoutes); // Add admin routes
+app.use('/api/admin', adminRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
