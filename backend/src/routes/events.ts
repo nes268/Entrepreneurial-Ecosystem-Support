@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { Event } from '../models/Event';
 import { authenticate, authorize, optionalAuth } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validation';
@@ -74,6 +75,22 @@ const getEventsQuerySchema = Joi.object({
 // @route   GET /api/events
 // @desc    Get all events
 // @access  Public
+
+// @route   GET /api/events/:id/participants
+// @desc    Get participants for an event
+// @access  Private (admin only)
+router.get('/:id/participants', authenticate, authorize('admin'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ success: false, message: 'Invalid event id' });
+  }
+  const event = await Event.findById(id).populate('attendees', 'fullName email username role');
+  if (!event) {
+    return res.status(404).json({ success: false, message: 'Event not found' });
+  }
+  return res.json({ success: true, data: { participants: event.attendees, count: event.attendees?.length || 0 } });
+}));
+
 router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(async (req, res) => {
   const { page, limit, category, eventType, status, isActive, isFree, dateFrom, dateTo, search, sortBy, sortOrder } = req.query as any;
   const skip = (page - 1) * limit;
