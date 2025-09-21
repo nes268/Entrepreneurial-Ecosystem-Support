@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types';
 import { useNotifications } from './NotificationsContext';
-import { useApplications } from './ApplicationsContext';
 
 interface AuthContextType {
   user: User | null;
@@ -28,7 +27,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   
   // Get contexts - these will be undefined if not wrapped in their providers
   let notificationsContext;
-  let applicationsContext;
   try {
     notificationsContext = useNotifications();
   } catch {
@@ -36,12 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     notificationsContext = null;
   }
   
-  try {
-    applicationsContext = useApplications();
-  } catch {
-    // ApplicationsProvider not available, continue without applications
-    applicationsContext = null;
-  }
+  // Removed applicationsContext as startup creation is now handled by ProfileWizard
 
   useEffect(() => {
     console.log('AuthContext useEffect running');
@@ -107,33 +100,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
     }
     
-    // Create application for enterprise users (startups)
-    if (data.role === 'enterprise' && applicationsContext) {
-      // Generate a random TRL level between 1-9
-      const trlLevel = Math.floor(Math.random() * 9) + 1;
-      
-      // Determine application type based on TRL level
-      const type = trlLevel <= 5 ? 'incubation' : 'innovation';
-      
-      // Generate a startup name if not provided
-      const startupName = data.fullName.includes(' ') 
-        ? `${data.fullName.split(' ')[0]}'s Startup`
-        : `${data.fullName}'s Startup`;
-      
-      // Generate a sector based on email domain or random
-      const sectors = ['CleanTech', 'HealthTech', 'EdTech', 'FinTech', 'AgriTech', 'AI/ML', 'IoT', 'Blockchain'];
-      const sector = sectors[Math.floor(Math.random() * sectors.length)];
-      
-      applicationsContext.addApplication({
-        name: startupName,
-        founder: data.fullName,
-        sector: sector,
-        type: type,
-        trlLevel: trlLevel,
-        email: data.email,
-        submissionDate: new Date().toISOString().split('T')[0]
-      });
-    }
+    // Removed the mock application creation for enterprise users.
+    // The ProfileWizard now handles actual startup creation.
     
     setIsLoading(false);
   };
