@@ -29,20 +29,75 @@ const refreshTokenSchema = Joi.object({
 
 // Generate JWT token
 const generateToken = (userId: string): string => {
-  return jwt.sign({ userId }, config.jwt.secret, {
-    expiresIn: config.jwt.expiresIn as string,
-  });
+  return jwt.sign(
+    { userId }, 
+    config.jwt.secret,
+    {
+      expiresIn: config.jwt.expiresIn,
+    } as jwt.SignOptions
+  );
 };
 
 // Generate refresh token
 const generateRefreshToken = (userId: string): string => {
-  return jwt.sign({ userId, type: 'refresh' }, config.jwt.secret, {
-    expiresIn: config.jwt.refreshExpiresIn as string,
-  });
+  return jwt.sign(
+    { userId, type: 'refresh' }, 
+    config.jwt.secret,
+    {
+      expiresIn: config.jwt.refreshExpiresIn,
+    } as jwt.SignOptions
+  );
 };
 
+// @route   POST /api/auth/admin/login
+// @desc    Admin login
+// @access  Public
+router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  // Find admin user and include password for comparison
+  const user = await User.findOne({ email, role: 'admin' }).select('+password');
+  
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid admin credentials',
+    });
+  }
+
+  // Check if password matches
+  const isMatch = await user.comparePassword(password);
+  
+  if (!isMatch) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid admin credentials',
+    });
+  }
+
+  // Update last login
+  user.lastLogin = new Date();
+  await user.save();
+
+  // Generate tokens
+  const token = generateToken((user._id as any).toString());
+  const refreshToken = generateRefreshToken((user._id as any).toString());
+
+  return res.json({
+    success: true,
+    message: 'Admin login successful',
+    data: {
+      user: user.toJSON(),
+      token,
+      refreshToken,
+      redirectUrl: '/admin/dashboard',
+      role: user.role,
+    },
+  });
+}));
+
 // @route   POST /api/auth/login
-// @desc    Login user
+// @desc    Login user (startup/individual)
 // @access  Public
 router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, res: Response) => {
   const { email, password } = req.body;
@@ -75,13 +130,23 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
   const token = generateToken((user._id as any).toString());
   const refreshToken = generateRefreshToken((user._id as any).toString());
 
-  res.json({
+  // Determine redirect URL based on user role
+  let redirectUrl = '/dashboard';
+  if (user.role === 'admin') {
+    redirectUrl = '/admin/dashboard';
+  } else if (user.role === 'enterprise' || user.role === 'individual') {
+    redirectUrl = '/startup/dashboard';
+  }
+
+  return res.json({
     success: true,
     message: 'Login successful',
     data: {
       user: user.toJSON(),
       token,
       refreshToken,
+      redirectUrl,
+      role: user.role,
     },
   });
 }));
@@ -119,13 +184,23 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
   const token = generateToken((user._id as any).toString());
   const refreshToken = generateRefreshToken((user._id as any).toString());
 
-  res.status(201).json({
+  // Determine redirect URL based on user role
+  let redirectUrl = '/dashboard';
+  if (user.role === 'admin') {
+    redirectUrl = '/admin/dashboard';
+  } else if (user.role === 'enterprise' || user.role === 'individual') {
+    redirectUrl = '/startup/dashboard';
+  }
+
+  return res.status(201).json({
     success: true,
     message: 'User registered successfully',
     data: {
       user: user.toJSON(),
       token,
       refreshToken,
+      redirectUrl,
+      role: user.role,
     },
   });
 }));
@@ -159,7 +234,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
     const newToken = generateToken((user._id as any).toString());
     const newRefreshToken = generateRefreshToken((user._id as any).toString());
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Token refreshed successfully',
       data: {
@@ -168,7 +243,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
       },
     });
   } catch (error) {
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
       message: 'Invalid refresh token',
     });
@@ -240,7 +315,7 @@ router.put('/change-password', authenticate, asyncHandler(async (req: AuthReques
   user.password = newPassword;
   await user.save();
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Password changed successfully',
   });

@@ -1,9 +1,14 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { Investor } from '../models/Investor';
-import { authenticate, authorize, optionalAuth } from '../middleware/auth';
+import { authenticate, authorize, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
+import { IUser } from '../models/User';
 import Joi from 'joi';
+
+interface OptionalAuthRequest extends Request {
+  user?: IUser;
+}
 
 const router = express.Router();
 
@@ -74,7 +79,7 @@ const getInvestorsQuerySchema = Joi.object({
 // @route   GET /api/investors
 // @desc    Get all investors
 // @access  Public
-router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandler(async (req, res) => {
+router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
   const { page, limit, focusAreas, sectors, location, isActive, isVerified, minInvestment, maxInvestment, search, sortBy, sortOrder } = req.query as any;
   const skip = (page - 1) * limit;
 
@@ -134,7 +139,7 @@ router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandl
 
   const total = await Investor.countDocuments(query);
 
-  res.json({
+  return res.json({
     success: true,
     data: {
       investors,
@@ -152,7 +157,7 @@ router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandl
 // @route   POST /api/investors
 // @desc    Create investor profile
 // @access  Private
-router.post('/', authenticate, validate(createInvestorSchema), asyncHandler(async (req, res) => {
+router.post('/', authenticate, validate(createInvestorSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   // Check if email already exists
   const existingInvestor = await Investor.findOne({ email: req.body.email });
   if (existingInvestor) {
@@ -164,13 +169,13 @@ router.post('/', authenticate, validate(createInvestorSchema), asyncHandler(asyn
 
   const investorData = {
     ...req.body,
-    userId: req.user._id,
+    userId: req.user!._id,
   };
 
   const investor = new Investor(investorData);
   await investor.save();
 
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
     message: 'Investor profile created successfully',
     data: {
@@ -182,7 +187,7 @@ router.post('/', authenticate, validate(createInvestorSchema), asyncHandler(asyn
 // @route   GET /api/investors/:id
 // @desc    Get investor by ID
 // @access  Public
-router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
+router.get('/:id', optionalAuth, asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
   const investor = await Investor.findById(req.params.id);
   
   if (!investor) {
@@ -202,7 +207,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
     }
   }
 
-  res.json({
+  return res.json({
     success: true,
     data: {
       investor,
@@ -213,7 +218,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
 // @route   PUT /api/investors/:id
 // @desc    Update investor
 // @access  Private
-router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(async (req, res) => {
+router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   const investor = await Investor.findById(req.params.id);
   
   if (!investor) {
@@ -224,7 +229,7 @@ router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(as
   }
 
   // Check if user can update this investor
-  if (req.user.role !== 'admin' && req.user._id.toString() !== investor.userId?.toString()) {
+  if (req.user!.role !== 'admin' && (req.user!._id as any).toString() !== investor.userId?.toString()) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -246,7 +251,7 @@ router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(as
   Object.assign(investor, req.body);
   await investor.save();
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Investor updated successfully',
     data: {
@@ -258,7 +263,7 @@ router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(as
 // @route   DELETE /api/investors/:id
 // @desc    Delete investor
 // @access  Private
-router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
+router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
   const investor = await Investor.findById(req.params.id);
   
   if (!investor) {
@@ -269,7 +274,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
   }
 
   // Check if user can delete this investor
-  if (req.user.role !== 'admin' && req.user._id.toString() !== investor.userId?.toString()) {
+  if (req.user!.role !== 'admin' && (req.user!._id as any).toString() !== investor.userId?.toString()) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -278,7 +283,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
 
   await Investor.findByIdAndDelete(req.params.id);
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Investor deleted successfully',
   });
@@ -287,7 +292,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
 // @route   GET /api/investors/stats/overview
 // @desc    Get investor statistics overview
 // @access  Public
-router.get('/stats/overview', asyncHandler(async (req, res) => {
+router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) => {
   const totalInvestors = await Investor.countDocuments();
   const activeInvestors = await Investor.countDocuments({ isActive: true });
   const verifiedInvestors = await Investor.countDocuments({ isVerified: true });
@@ -319,7 +324,7 @@ router.get('/stats/overview', asyncHandler(async (req, res) => {
     { $group: { _id: null, total: { $sum: '$stats.totalAmountInvested' } } }
   ]);
 
-  res.json({
+  return res.json({
     success: true,
     data: {
       totalInvestors,

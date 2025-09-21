@@ -9,8 +9,18 @@ export const config = {
   
   // Database Configuration
   mongodb: {
-    uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/citbif',
-    testUri: process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/citbif_test',
+    uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/CITBIF',
+    testUri: process.env.MONGODB_TEST_URI || 'mongodb://localhost:27017/CITBIF_test',
+  },
+  
+  // PostgreSQL Configuration
+  postgresql: {
+    user: process.env.PG_USER || 'postgres',
+    host: process.env.PG_HOST || 'localhost',
+    database: process.env.PG_DATABASE || 'postgres',
+    password: process.env.PG_PASSWORD || 'lovebird@2809',
+    port: parseInt(process.env.PG_PORT || '5432'),
+    ssl: process.env.NODE_ENV === 'production',
   },
   
   // JWT Configuration

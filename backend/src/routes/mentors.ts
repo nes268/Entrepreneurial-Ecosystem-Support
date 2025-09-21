@@ -1,9 +1,14 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { Mentor } from '../models/Mentor';
-import { authenticate, authorize, optionalAuth } from '../middleware/auth';
+import { authenticate, authorize, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
+import { IUser } from '../models/User';
 import Joi from 'joi';
+
+interface OptionalAuthRequest extends Request {
+  user?: IUser;
+}
 
 const router = express.Router();
 
@@ -85,7 +90,7 @@ const getMentorsQuerySchema = Joi.object({
 // @route   GET /api/mentors
 // @desc    Get all mentors
 // @access  Public
-router.get('/', optionalAuth, validateQuery(getMentorsQuerySchema), asyncHandler(async (req, res) => {
+router.get('/', optionalAuth, validateQuery(getMentorsQuerySchema), asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
   const { page, limit, sectors, expertise, location, isActive, isVerified, minRating, search, sortBy, sortOrder } = req.query as any;
   const skip = (page - 1) * limit;
 
@@ -141,7 +146,7 @@ router.get('/', optionalAuth, validateQuery(getMentorsQuerySchema), asyncHandler
 
   const total = await Mentor.countDocuments(query);
 
-  res.json({
+  return res.json({
     success: true,
     data: {
       mentors,
@@ -159,7 +164,7 @@ router.get('/', optionalAuth, validateQuery(getMentorsQuerySchema), asyncHandler
 // @route   POST /api/mentors
 // @desc    Create mentor profile
 // @access  Private
-router.post('/', authenticate, validate(createMentorSchema), asyncHandler(async (req, res) => {
+router.post('/', authenticate, validate(createMentorSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   // Check if email already exists
   const existingMentor = await Mentor.findOne({ email: req.body.email });
   if (existingMentor) {
@@ -171,13 +176,13 @@ router.post('/', authenticate, validate(createMentorSchema), asyncHandler(async 
 
   const mentorData = {
     ...req.body,
-    userId: req.user._id,
+    userId: req.user!._id,
   };
 
   const mentor = new Mentor(mentorData);
   await mentor.save();
 
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
     message: 'Mentor profile created successfully',
     data: {
@@ -189,7 +194,7 @@ router.post('/', authenticate, validate(createMentorSchema), asyncHandler(async 
 // @route   GET /api/mentors/:id
 // @desc    Get mentor by ID
 // @access  Public
-router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
+router.get('/:id', optionalAuth, asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
   const mentor = await Mentor.findById(req.params.id);
   
   if (!mentor) {
@@ -209,7 +214,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
     }
   }
 
-  res.json({
+  return res.json({
     success: true,
     data: {
       mentor,
@@ -220,7 +225,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
 // @route   PUT /api/mentors/:id
 // @desc    Update mentor
 // @access  Private
-router.put('/:id', authenticate, validate(updateMentorSchema), asyncHandler(async (req, res) => {
+router.put('/:id', authenticate, validate(updateMentorSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   const mentor = await Mentor.findById(req.params.id);
   
   if (!mentor) {
@@ -231,7 +236,7 @@ router.put('/:id', authenticate, validate(updateMentorSchema), asyncHandler(asyn
   }
 
   // Check if user can update this mentor
-  if (req.user.role !== 'admin' && req.user._id.toString() !== mentor.userId?.toString()) {
+  if (req.user!.role !== 'admin' && (req.user!._id as any).toString() !== mentor.userId?.toString()) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -253,7 +258,7 @@ router.put('/:id', authenticate, validate(updateMentorSchema), asyncHandler(asyn
   Object.assign(mentor, req.body);
   await mentor.save();
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Mentor updated successfully',
     data: {
@@ -265,7 +270,7 @@ router.put('/:id', authenticate, validate(updateMentorSchema), asyncHandler(asyn
 // @route   DELETE /api/mentors/:id
 // @desc    Delete mentor
 // @access  Private
-router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
+router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
   const mentor = await Mentor.findById(req.params.id);
   
   if (!mentor) {
@@ -276,7 +281,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
   }
 
   // Check if user can delete this mentor
-  if (req.user.role !== 'admin' && req.user._id.toString() !== mentor.userId?.toString()) {
+  if (req.user!.role !== 'admin' && (req.user!._id as any).toString() !== mentor.userId?.toString()) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -285,7 +290,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
 
   await Mentor.findByIdAndDelete(req.params.id);
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Mentor deleted successfully',
   });
@@ -294,7 +299,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
 // @route   GET /api/mentors/stats/overview
 // @desc    Get mentor statistics overview
 // @access  Public
-router.get('/stats/overview', asyncHandler(async (req, res) => {
+router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) => {
   const totalMentors = await Mentor.countDocuments();
   const activeMentors = await Mentor.countDocuments({ isActive: true });
   const verifiedMentors = await Mentor.countDocuments({ isVerified: true });
@@ -325,7 +330,7 @@ router.get('/stats/overview', asyncHandler(async (req, res) => {
     { $sort: { _id: 1 } }
   ]);
 
-  res.json({
+  return res.json({
     success: true,
     data: {
       totalMentors,
