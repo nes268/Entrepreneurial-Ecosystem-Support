@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { config } from '../config/env';
 import { User } from '../models/User';
 import { authenticate, AuthRequest } from '../middleware/auth';
@@ -29,16 +29,18 @@ const refreshTokenSchema = Joi.object({
 
 // Generate JWT token
 const generateToken = (userId: string): string => {
-  return jwt.sign({ userId }, config.jwt.secret, {
+  const options: SignOptions = {
     expiresIn: config.jwt.expiresIn as string,
-  });
+  };
+  return jwt.sign({ userId }, config.jwt.secret as string, options);
 };
 
 // Generate refresh token
 const generateRefreshToken = (userId: string): string => {
-  return jwt.sign({ userId, type: 'refresh' }, config.jwt.secret, {
+  const options: SignOptions = {
     expiresIn: config.jwt.refreshExpiresIn as string,
-  });
+  };
+  return jwt.sign({ userId, type: 'refresh' }, config.jwt.secret as string, options);
 };
 
 // @route   POST /api/auth/login
@@ -75,7 +77,7 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
   const token = generateToken((user._id as any).toString());
   const refreshToken = generateRefreshToken((user._id as any).toString());
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Login successful',
     data: {
@@ -119,7 +121,7 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
   const token = generateToken((user._id as any).toString());
   const refreshToken = generateRefreshToken((user._id as any).toString());
 
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
     message: 'User registered successfully',
     data: {
@@ -159,7 +161,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
     const newToken = generateToken((user._id as any).toString());
     const newRefreshToken = generateRefreshToken((user._id as any).toString());
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Token refreshed successfully',
       data: {
@@ -168,7 +170,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
       },
     });
   } catch (error) {
-    res.status(401).json({
+    return res.status(401).json({
       success: false,
       message: 'Invalid refresh token',
     });
@@ -179,7 +181,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
 // @desc    Get current user
 // @access  Private
 router.get('/me', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
-  res.json({
+  return res.json({
     success: true,
     data: {
       user: req.user,
@@ -191,7 +193,7 @@ router.get('/me', authenticate, asyncHandler(async (req: AuthRequest, res: Respo
 // @desc    Logout user (client-side token removal)
 // @access  Private
 router.post('/logout', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
-  res.json({
+  return res.json({
     success: true,
     message: 'Logout successful',
   });
@@ -240,7 +242,7 @@ router.put('/change-password', authenticate, asyncHandler(async (req: AuthReques
   user.password = newPassword;
   await user.save();
 
-  res.json({
+  return res.json({
     success: true,
     message: 'Password changed successfully',
   });
