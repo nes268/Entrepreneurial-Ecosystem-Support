@@ -26,8 +26,9 @@ export const config = {
   // JWT Configuration
   jwt: {
     secret: process.env.JWT_SECRET || 'your-super-secret-jwt-key-here',
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
+    refreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'your-super-secret-refresh-key-here',
+    expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '86400'), // 24 hours in seconds
+    refreshExpiresIn: parseInt(process.env.JWT_REFRESH_EXPIRES_IN || '2592000000'), // 30 days in milliseconds
   },
   
   // Email Configuration

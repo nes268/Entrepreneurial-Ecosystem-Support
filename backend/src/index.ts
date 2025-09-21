@@ -26,7 +26,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Connect to MongoDB
+// Connect to both MongoDB and PostgreSQL
 connectDB();
 
 // Security middleware
