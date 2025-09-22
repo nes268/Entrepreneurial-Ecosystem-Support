@@ -31,34 +31,17 @@ const refreshTokenSchema = Joi.object({
   refreshToken: Joi.string().required(),
 });
 
-<<<<<<< HEAD
-// Generate JWT token
-const generateToken = (userId: string): string => {
-  const options: SignOptions = {
-    expiresIn: config.jwt.expiresIn as string,
-  };
-  return jwt.sign({ userId }, config.jwt.secret as string, options);
-};
-
-// Generate refresh token
-const generateRefreshToken = (userId: string): string => {
-  const options: SignOptions = {
-    expiresIn: config.jwt.refreshExpiresIn as string,
-  };
-  return jwt.sign({ userId, type: 'refresh' }, config.jwt.secret as string, options);
-};
-=======
 // Helper function to create or update PostgreSQL user record
 const upsertPGUser = async (user: any): Promise<void> => {
   try {
     const mongoUserId = user._id.toString();
-    
+
     // Check if user exists in PostgreSQL
     const existingResult = await pgPool.query(
       'SELECT id FROM pg_users WHERE mongo_user_id = $1',
       [mongoUserId]
     );
-    
+
     if (existingResult.rows.length === 0) {
       // Create new PG user record
       await pgPool.query(
@@ -69,7 +52,7 @@ const upsertPGUser = async (user: any): Promise<void> => {
     } else {
       // Update existing PG user record
       await pgPool.query(
-        `UPDATE pg_users 
+        `UPDATE pg_users
          SET email = $2, role = $3, updated_at = $4, last_login = $5, login_count = login_count + 1, is_active = true
          WHERE mongo_user_id = $1`,
         [mongoUserId, user.email, user.role, new Date(), new Date()]
@@ -89,7 +72,7 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
 
   // Find admin user and include password for comparison
   const user = await User.findOne({ email, role: 'admin' }).select('+password');
-  
+
   if (!user) {
     return res.status(401).json({
       success: false,
@@ -99,7 +82,7 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
 
   // Check if password matches
   const isMatch = await user.comparePassword(password);
-  
+
   if (!isMatch) {
     // Find admin profile to log failed attempt
     const admin = await Admin.findOne({ userId: user._id });
@@ -107,7 +90,7 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
       admin.handleFailedLogin();
       await admin.save();
     }
-    
+
     return res.status(401).json({
       success: false,
       message: 'Invalid admin credentials',
@@ -116,7 +99,7 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
 
   // Get admin profile
   let admin = await Admin.findOne({ userId: user._id });
-  
+
   // Check if admin account is locked
   if (admin && admin.isLocked && admin.lockedUntil && admin.lockedUntil > new Date()) {
     return res.status(423).json({
@@ -141,12 +124,12 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
   // Update last login for both user and admin
   user.lastLogin = new Date();
   admin.handleSuccessfulLogin();
-  
+
   // Log admin activity
   admin.logActivity('login', 'auth', `Admin logged in from ${req.ip}`, undefined, req.ip);
-  
+
   await Promise.all([user.save(), admin.save()]);
-  
+
   // Update PostgreSQL records
   await upsertPGUser(user);
 
@@ -168,10 +151,9 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
       role: user.role,
     },
   };
-  
+
   return res.json(response);
-}));
->>>>>>> 38b0531ade4b5e54c695819eea9ddb6e231fb5ac
+});
 
 // @route   POST /api/auth/login
 // @desc    Login user (startup/individual)
@@ -217,9 +199,6 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
   // Generate tokens
   const tokens = await generateTokenPair(user);
 
-<<<<<<< HEAD
-  return res.json({
-=======
   // Determine redirect URL based on user role
   let redirectUrl = '/startup/dashboard';
   if (user.role === 'enterprise') {
@@ -229,7 +208,6 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
   }
 
   const response: ApiResponse = {
->>>>>>> 38b0531ade4b5e54c695819eea9ddb6e231fb5ac
     success: true,
     message: 'Login successful',
     data: {
@@ -286,9 +264,6 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
   // Generate tokens
   const tokens = await generateTokenPair(user);
 
-<<<<<<< HEAD
-  return res.status(201).json({
-=======
   // Determine redirect URL based on user role
   let redirectUrl = '/startup/dashboard';
   if (user.role === 'enterprise' || user.role === 'individual') {
@@ -296,7 +271,6 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
   }
 
   const response: ApiResponse = {
->>>>>>> 38b0531ade4b5e54c695819eea9ddb6e231fb5ac
     success: true,
     message: 'User registered successfully',
     data: {
@@ -316,45 +290,9 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
 router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: Request, res: Response) => {
   const { refreshToken } = req.body;
 
-<<<<<<< HEAD
-  try {
-    const decoded = jwt.verify(refreshToken, config.jwt.secret) as any;
-    
-    if (decoded.type !== 'refresh') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid refresh token',
-      });
-    }
-
-    const user = await User.findById(decoded.userId);
-    
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    // Generate new tokens
-    const newToken = generateToken((user._id as any).toString());
-    const newRefreshToken = generateRefreshToken((user._id as any).toString());
-
-    return res.json({
-      success: true,
-      message: 'Token refreshed successfully',
-      data: {
-        token: newToken,
-        refreshToken: newRefreshToken,
-      },
-    });
-  } catch (error) {
-=======
-  // Validate refresh token
   const validation = await validateRefreshToken(refreshToken);
-  
+
   if (!validation.valid) {
->>>>>>> 38b0531ade4b5e54c695819eea9ddb6e231fb5ac
     return res.status(401).json({
       success: false,
       message: validation.error || 'Invalid refresh token',
@@ -364,7 +302,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
 
   // Find user by ID
   const user = await User.findById(validation.payload!.userId);
-  
+
   if (!user) {
     return res.status(401).json({
       success: false,
@@ -411,11 +349,8 @@ router.get('/me', authenticate, asyncHandler(async (req: AuthRequest, res: Respo
 // @desc    Logout user (revoke current session)
 // @access  Private
 router.post('/logout', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
-<<<<<<< HEAD
-  return res.json({
-=======
   const refreshToken = req.body.refreshToken;
-  
+
   if (refreshToken) {
     // Validate and revoke the specific refresh token
     const validation = await validateRefreshToken(refreshToken);
@@ -423,19 +358,18 @@ router.post('/logout', authenticate, asyncHandler(async (req: AuthRequest, res: 
       await revokeRefreshToken(validation.tokenId);
     }
   }
-  
+
   // Log admin activity if user is admin
   if (req.admin) {
     req.admin.logActivity('logout', 'auth', `Admin logged out from ${req.ip}`, undefined, req.ip);
     await req.admin.save();
   }
-  
+
   const response: ApiResponse = {
->>>>>>> 38b0531ade4b5e54c695819eea9ddb6e231fb5ac
     success: true,
     message: 'Logout successful',
   };
-  
+
   res.json(response);
 }));
 

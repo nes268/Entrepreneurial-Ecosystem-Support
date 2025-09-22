@@ -59,7 +59,7 @@ export const connectPostgreSQL = async (): Promise<void> => {
     console.log(`⏰ Connection time: ${result.rows[0].now}`);
     
     // Handle pool events
-    pgPool.on('error', (err) => {
+    pgPool.on('error', (err: Error) => {
       console.error('❌ PostgreSQL connection error:', err);
     });
     
