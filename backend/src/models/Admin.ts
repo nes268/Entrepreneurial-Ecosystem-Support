@@ -56,6 +56,12 @@ export interface IAdmin extends Document {
   
   createdAt: Date;
   updatedAt: Date;
+
+  // Methods
+  logActivity(action: string, targetType: string, description: string, targetId?: string, ipAddress?: string): Promise<this>;
+  hasPermission(permission: string): boolean;
+  handleFailedLogin(): void;
+  handleSuccessfulLogin(): void;
 }
 
 const adminSchema = new Schema<IAdmin>({
@@ -221,9 +227,7 @@ const adminSchema = new Schema<IAdmin>({
   timestamps: true,
 });
 
-// Index for better query performance
-adminSchema.index({ userId: 1 });
-adminSchema.index({ email: 1 });
+// Index for better query performance (only for fields that don't have unique: true)
 adminSchema.index({ adminLevel: 1 });
 adminSchema.index({ isActive: 1 });
 adminSchema.index({ isVerified: 1 });
@@ -283,9 +287,16 @@ adminSchema.pre('save', function(next) {
     switch (this.adminLevel) {
       case 'super_admin':
         // Super admin gets all permissions
-        Object.keys(this.permissions.toObject()).forEach(key => {
-          this.permissions[key] = true;
-        });
+        this.permissions.canManageUsers = true;
+        this.permissions.canManageStartups = true;
+        this.permissions.canManageMentors = true;
+        this.permissions.canManageInvestors = true;
+        this.permissions.canManageEvents = true;
+        this.permissions.canManageReports = true;
+        this.permissions.canManageSettings = true;
+        this.permissions.canViewAnalytics = true;
+        this.permissions.canExportData = true;
+        this.permissions.canDeleteData = true;
         break;
       case 'admin':
         // Regular admin gets most permissions except sensitive ones

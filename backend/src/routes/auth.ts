@@ -1,14 +1,11 @@
 import express, { Request, Response } from 'express';
-import jwt, { SignOptions } from 'jsonwebtoken';
-import { config } from '../config/env';
-import { User } from '../models/User';
-import { Admin } from '../models/Admin';
+import bcrypt from 'bcryptjs';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { validate } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 import { generateTokenPair, validateRefreshToken, revokeRefreshToken, revokeAllUserTokens } from '../utils/jwt';
-import { pgPool } from '../config/database';
-import { ApiResponse } from '../types';
+import { ApiResponse, UserRole } from '../types';
+import prisma from '../config/prisma';
 import Joi from 'joi';
 
 const router = express.Router();
@@ -31,6 +28,7 @@ const refreshTokenSchema = Joi.object({
   refreshToken: Joi.string().required(),
 });
 
+<<<<<<< HEAD
 // Helper function to create or update PostgreSQL user record
 const upsertPGUser = async (user: any): Promise<void> => {
   try {
@@ -64,22 +62,26 @@ const upsertPGUser = async (user: any): Promise<void> => {
   }
 };
 
+=======
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
 // @route   POST /api/auth/admin/login
 // @desc    Admin login
 // @access  Public
 router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
+<<<<<<< HEAD
   // Find admin user and include password for comparison
   const user = await User.findOne({ email, role: 'admin' }).select('+password');
 
+=======
+  const user = await prisma.user.findFirst({ where: { email, role: 'ADMIN' } });
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
   if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid admin credentials',
-    });
+    return res.status(401).json({ success: false, message: 'Invalid admin credentials' });
   }
 
+<<<<<<< HEAD
   // Check if password matches
   const isMatch = await user.comparePassword(password);
 
@@ -135,17 +137,22 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
 
   // Generate tokens
   const tokens = await generateTokenPair(user, admin);
+=======
+  const isMatch = await bcrypt.compare(password, user.passwordHash);
+  if (!isMatch) {
+    return res.status(401).json({ success: false, message: 'Invalid admin credentials' });
+  }
+
+  await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
+
+  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as UserRole });
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
 
   const response: ApiResponse = {
     success: true,
     message: 'Admin login successful',
     data: {
-      user: user.toJSON(),
-      admin: {
-        adminLevel: admin.adminLevel,
-        permissions: admin.permissions,
-        preferences: admin.preferences,
-      },
+      user: { ...user, passwordHash: undefined },
       ...tokens,
       redirectUrl: '/admin/dashboard',
       role: user.role,
@@ -153,7 +160,11 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
   };
 
   return res.json(response);
+<<<<<<< HEAD
 });
+=======
+}));
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
 
 // @route   POST /api/auth/login
 // @desc    Login user (startup/individual)
@@ -161,44 +172,25 @@ router.post('/admin/login', validate(loginSchema), asyncHandler(async (req: Requ
 router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, res: Response) => {
   const { email, password } = req.body;
 
-  // Find user and include password for comparison
-  const user = await User.findOne({ email }).select('+password');
-  
+  const user = await prisma.user.findFirst({ where: { email } });
   if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid credentials',
-    });
+    return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 
-  // Don't allow admin users to login through regular login
-  if (user.role === 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Admin users must login through the admin portal',
-    });
+  if (user.role === 'ADMIN') {
+    return res.status(403).json({ success: false, message: 'Admin users must login through the admin portal' });
   }
 
-  // Check if password matches
-  const isMatch = await user.comparePassword(password);
-  
+  const isMatch = await bcrypt.compare(password, user.passwordHash);
   if (!isMatch) {
-    return res.status(401).json({
-      success: false,
-      message: 'Invalid credentials',
-    });
+    return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 
-  // Update last login
-  user.lastLogin = new Date();
-  await user.save();
-  
-  // Update PostgreSQL records
-  await upsertPGUser(user);
+  await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
 
-  // Generate tokens
-  const tokens = await generateTokenPair(user);
+  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as UserRole });
 
+<<<<<<< HEAD
   // Determine redirect URL based on user role
   let redirectUrl = '/startup/dashboard';
   if (user.role === 'enterprise') {
@@ -206,12 +198,15 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
   } else if (user.role === 'individual') {
     redirectUrl = '/startup/dashboard';
   }
+=======
+  const redirectUrl = '/startup/dashboard';
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
 
   const response: ApiResponse = {
     success: true,
     message: 'Login successful',
     data: {
-      user: user.toJSON(),
+      user: { ...user, passwordHash: undefined },
       ...tokens,
       redirectUrl,
       role: user.role,
@@ -225,21 +220,21 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
 // @desc    Register user
 // @access  Public
 router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request, res: Response) => {
-  const { fullName, email, username, password, role } = req.body;
+  const { fullName, email, username, password, role } = req.body as { fullName: string; email: string; username: string; password: string; role: 'individual' | 'enterprise' };
 
-  // Don't allow admin registration through public signup
-  if (role === 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Admin accounts cannot be created through public registration',
-    });
+  const existing = await prisma.user.findFirst({ where: { OR: [{ email }, { username }] } });
+  if (existing) {
+    return res.status(400).json({ success: false, message: existing.email === email ? 'Email already exists' : 'Username already exists' });
   }
 
-  // Check if user already exists
-  const existingUser = await User.findOne({
-    $or: [{ email }, { username }]
+  const passwordHash = await bcrypt.genSalt(12).then((salt) => bcrypt.hash(password, salt));
+  const mappedRole: UserRole = role === 'enterprise' ? 'enterprise' : 'individual';
+
+  const user = await prisma.user.create({
+    data: { fullName, email, username, passwordHash, role: mappedRole },
   });
 
+<<<<<<< HEAD
   if (existingUser) {
     return res.status(400).json({
       success: false,
@@ -269,14 +264,17 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
   if (user.role === 'enterprise' || user.role === 'individual') {
     redirectUrl = '/startup/dashboard';
   }
+=======
+  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as UserRole });
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
 
   const response: ApiResponse = {
     success: true,
     message: 'User registered successfully',
     data: {
-      user: user.toJSON(),
+      user: { ...user, passwordHash: undefined },
       ...tokens,
-      redirectUrl,
+      redirectUrl: '/startup/dashboard',
       role: user.role,
     },
   };
@@ -291,6 +289,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
   const { refreshToken } = req.body;
 
   const validation = await validateRefreshToken(refreshToken);
+<<<<<<< HEAD
 
   if (!validation.valid) {
     return res.status(401).json({
@@ -303,33 +302,24 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
   // Find user by ID
   const user = await User.findById(validation.payload!.userId);
 
+=======
+  if (!validation.valid) {
+    return res.status(401).json({ success: false, message: validation.error || 'Invalid refresh token', expired: validation.expired });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: validation.payload!.userId } });
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
   if (!user) {
-    return res.status(401).json({
-      success: false,
-      message: 'User not found',
-    });
+    return res.status(401).json({ success: false, message: 'User not found' });
   }
 
-  // Get admin profile if user is admin
-  let admin;
-  if (user.role === 'admin') {
-    admin = await Admin.findOne({ userId: user._id });
-  }
-
-  // Revoke the old refresh token
   if (validation.tokenId) {
     await revokeRefreshToken(validation.tokenId);
   }
 
-  // Generate new tokens
-  const tokens = await generateTokenPair(user, admin);
+  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as UserRole });
 
-  const response: ApiResponse = {
-    success: true,
-    message: 'Token refreshed successfully',
-    data: tokens,
-  };
-
+  const response: ApiResponse = { success: true, message: 'Token refreshed successfully', data: tokens };
   return res.json(response);
 }));
 
@@ -337,12 +327,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
 // @desc    Get current user
 // @access  Private
 router.get('/me', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
-  return res.json({
-    success: true,
-    data: {
-      user: req.user,
-    },
-  });
+  return res.json({ success: true, data: { user: req.user } });
 }));
 
 // @route   POST /api/auth/logout
@@ -350,14 +335,17 @@ router.get('/me', authenticate, asyncHandler(async (req: AuthRequest, res: Respo
 // @access  Private
 router.post('/logout', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
   const refreshToken = req.body.refreshToken;
+<<<<<<< HEAD
 
+=======
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
   if (refreshToken) {
-    // Validate and revoke the specific refresh token
     const validation = await validateRefreshToken(refreshToken);
     if (validation.valid && validation.tokenId) {
       await revokeRefreshToken(validation.tokenId);
     }
   }
+<<<<<<< HEAD
 
   // Log admin activity if user is admin
   if (req.admin) {
@@ -370,6 +358,9 @@ router.post('/logout', authenticate, asyncHandler(async (req: AuthRequest, res: 
     message: 'Logout successful',
   };
 
+=======
+  const response: ApiResponse = { success: true, message: 'Logout successful' };
+>>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
   res.json(response);
 }));
 
@@ -377,25 +368,9 @@ router.post('/logout', authenticate, asyncHandler(async (req: AuthRequest, res: 
 // @desc    Logout from all devices (revoke all user sessions)
 // @access  Private
 router.post('/logout-all', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
-  const userId = req.user!._id.toString();
-  
-  // Revoke all refresh tokens for the user
+  const userId = req.user!.id as string;
   const revoked = await revokeAllUserTokens(userId);
-  
-  // Log admin activity if user is admin
-  if (req.admin) {
-    req.admin.logActivity('logout_all', 'auth', `Admin logged out from all devices from ${req.ip}`, undefined, req.ip);
-    await req.admin.save();
-  }
-  
-  const response: ApiResponse = {
-    success: true,
-    message: `Logout successful from all devices${revoked ? '. All sessions revoked.' : ''}`,
-    data: {
-      sessionsRevoked: revoked
-    }
-  };
-  
+  const response: ApiResponse = { success: true, message: `Logout successful from all devices${revoked ? '. All sessions revoked.' : ''}`, data: { sessionsRevoked: revoked } };
   res.json(response);
 }));
 
@@ -403,49 +378,29 @@ router.post('/logout-all', authenticate, asyncHandler(async (req: AuthRequest, r
 // @desc    Change user password
 // @access  Private
 router.put('/change-password', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { currentPassword, newPassword } = req.body;
+  const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
 
   if (!currentPassword || !newPassword) {
-    return res.status(400).json({
-      success: false,
-      message: 'Current password and new password are required',
-    });
+    return res.status(400).json({ success: false, message: 'Current password and new password are required' });
   }
-
   if (newPassword.length < 6) {
-    return res.status(400).json({
-      success: false,
-      message: 'New password must be at least 6 characters',
-    });
+    return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
   }
 
-  const user = await User.findById(req.user!._id).select('+password');
-  
+  const user = await prisma.user.findUnique({ where: { id: req.user!.id as string } });
   if (!user) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found',
-    });
+    return res.status(404).json({ success: false, message: 'User not found' });
   }
 
-  // Check current password
-  const isMatch = await user.comparePassword(currentPassword);
-  
+  const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!isMatch) {
-    return res.status(400).json({
-      success: false,
-      message: 'Current password is incorrect',
-    });
+    return res.status(400).json({ success: false, message: 'Current password is incorrect' });
   }
 
-  // Update password
-  user.password = newPassword;
-  await user.save();
+  const newHash = await bcrypt.genSalt(12).then((salt) => bcrypt.hash(newPassword, salt));
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
 
-  return res.json({
-    success: true,
-    message: 'Password changed successfully',
-  });
+  return res.json({ success: true, message: 'Password changed successfully' });
 }));
 
 export default router;

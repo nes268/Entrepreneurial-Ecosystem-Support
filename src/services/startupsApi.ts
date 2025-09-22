@@ -1,5 +1,7 @@
+import api from './api';
+
 interface StartupDocument {
-  _id?: string;
+  id?: string;
   name: string;
   type: string;
   category: string;
@@ -11,7 +13,7 @@ interface StartupDocument {
 }
 
 interface StartupWithDocuments {
-  _id: string;
+  id: string;
   name: string;
   founder: string;
   sector: string;
@@ -22,7 +24,7 @@ interface StartupWithDocuments {
   documents: StartupDocument[];
   documentCount: number;
   userId: {
-    _id: string;
+    id: string;
     fullName: string;
     email: string;
     username: string;
@@ -68,77 +70,30 @@ class StartupsApi {
       hasPrev: boolean;
     };
   }> {
-    const queryParams = new URLSearchParams();
+    const response = await api.get('/startups/with-documents', { params });
     
-    if (params.search) queryParams.append('search', params.search);
-    if (params.sector) queryParams.append('sector', params.sector);
-    if (params.type) queryParams.append('type', params.type);
-    if (params.status) queryParams.append('status', params.status);
-    if (params.page) queryParams.append('page', params.page.toString());
-    if (params.limit) queryParams.append('limit', params.limit.toString());
-
-    const response = await fetch(`/api/startups/with-documents?${queryParams}`, {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch startups: ${response.statusText}`);
+    if (response.data.success) {
+      return response.data.data;
     }
-
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to fetch startups');
-    }
-
-    return data.data;
+    throw new Error(response.data.message || 'Failed to fetch startups');
   }
 
   async createStartupProfile(startupData: CreateStartupPayload): Promise<StartupWithDocuments> {
-    const response = await fetch('/api/startups', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(startupData),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to create startup profile');
+    const response = await api.post('/startups', startupData);
+    
+    if (response.data.success) {
+      return response.data.data.startup;
     }
-
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to create startup profile');
-    }
-    return data.data;
+    throw new Error(response.data.message || 'Failed to create startup profile');
   }
 
   async updateStartupProfile(id: string, startupData: UpdateStartupPayload): Promise<StartupWithDocuments> {
-    const response = await fetch(`/api/startups/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(startupData),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to update startup profile');
+    const response = await api.put(`/startups/${id}`, startupData);
+    
+    if (response.data.success) {
+      return response.data.data.startup;
     }
-
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to update startup profile');
-    }
-    return data.data;
+    throw new Error(response.data.message || 'Failed to update startup profile');
   }
 }
 

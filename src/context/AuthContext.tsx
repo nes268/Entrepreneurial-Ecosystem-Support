@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types';
 import { useNotifications } from './NotificationsContext';
+import api from '../services/api';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<{ redirectUrl?: string }>;
   signup: (data: SignupData) => Promise<void>;
   logout: () => void;
   updateUser: (updates: Partial<User>) => void;
@@ -38,77 +39,155 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     console.log('AuthContext useEffect running');
-    // Simulate checking for existing session
-    const savedUser = localStorage.getItem('user');
-    console.log('Saved user:', savedUser);
-    
-    // For development: Clear any existing user to force login page
-    if (savedUser) {
-      console.log('Found saved user, clearing for development...');
-      localStorage.removeItem('user');
-    }
-    
-    setIsLoading(false);
-    console.log('AuthContext loading set to false');
+    checkAuthStatus();
   }, []);
 
-  const login = async (email: string, _password: string) => {
+  const checkAuthStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Verify token with backend
+      const response = await api.get('/auth/me');
+      if (response.data.success && response.data.data.user) {
+        const userData = response.data.data.user;
+        // Map backend user format to frontend user format
+        const user: User = {
+          id: userData.id,
+          fullName: userData.fullName,
+          email: userData.email,
+          username: userData.username,
+          role: userData.role.toLowerCase() === 'admin' ? 'admin' : 
+                userData.role.toLowerCase() === 'enterprise' ? 'enterprise' : 'individual',
+          profileComplete: userData.profileComplete,
+          createdAt: userData.createdAt,
+          startupId: userData.startupId
+        };
+        setUser(user);
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      // Clear invalid token
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (email: string, password: string): Promise<{ redirectUrl?: string }> => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Mock user data - in real app, this would come from API
-    const mockUser: User = {
-      id: '1',
-      fullName: 'John Doe',
-      email,
-      username: email.split('@')[0],
-      role: email.includes('admin') ? 'admin' : 'enterprise',
-      profileComplete: !email.includes('new'),
-      createdAt: new Date().toISOString(),
-    };
-    
-    setUser(mockUser);
-    localStorage.setItem('user', JSON.stringify(mockUser));
-    setIsLoading(false);
+    try {
+      // Determine if this is an admin login
+      const isAdminLogin = email.includes('admin') || email === 'admin@citbif.com';
+      const endpoint = isAdminLogin ? '/auth/admin/login' : '/auth/login';
+      
+      const response = await api.post(endpoint, { email, password });
+      
+      if (response.data.success) {
+        const { user: userData, accessToken, refreshToken, redirectUrl } = response.data.data;
+        
+        // Store tokens
+        localStorage.setItem('token', accessToken);
+        if (refreshToken) {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
+        
+        // Map backend user format to frontend user format
+        const user: User = {
+          id: userData.id,
+          fullName: userData.fullName,
+          email: userData.email,
+          username: userData.username,
+          role: userData.role.toLowerCase() === 'admin' ? 'admin' : 
+                userData.role.toLowerCase() === 'enterprise' ? 'enterprise' : 'individual',
+          profileComplete: userData.profileComplete,
+          createdAt: userData.createdAt,
+          startupId: userData.startupId
+        };
+        
+        setUser(user);
+        localStorage.setItem('user', JSON.stringify(user));
+        
+        return { redirectUrl };
+      } else {
+        throw new Error(response.data.message || 'Login failed');
+      }
+    } catch (error: unknown) {
+      console.error('Login error:', error);
+      const errorMessage = (error as any).response?.data?.message || (error as Error).message || 'Login failed';
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const signup = async (data: SignupData) => {
     setIsLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const newUser: User = {
-      id: Date.now().toString(),
-      fullName: data.fullName,
-      email: data.email,
-      username: data.username,
-      role: data.role,
-      profileComplete: false,
-      createdAt: new Date().toISOString(),
-    };
-    
-    setUser(newUser);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    
-    // Create notification for admin when new user signs up
-    if (notificationsContext) {
-      notificationsContext.createSignupNotification(
-        data.fullName,
-        data.email,
-        data.role
-      );
+    try {
+      const response = await api.post('/auth/signup', data);
+      
+      if (response.data.success) {
+        const { user: userData, accessToken, refreshToken } = response.data.data;
+        
+        // Store tokens
+        localStorage.setItem('token', accessToken);
+        if (refreshToken) {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
+        
+        // Map backend user format to frontend user format
+        const user: User = {
+          id: userData.id,
+          fullName: userData.fullName,
+          email: userData.email,
+          username: userData.username,
+          role: userData.role.toLowerCase() === 'admin' ? 'admin' : 
+                userData.role.toLowerCase() === 'enterprise' ? 'enterprise' : 'individual',
+          profileComplete: userData.profileComplete,
+          createdAt: userData.createdAt,
+          startupId: userData.startupId
+        };
+        
+        setUser(user);
+        localStorage.setItem('user', JSON.stringify(user));
+        
+        // Create notification for admin when new user signs up
+        if (notificationsContext) {
+          notificationsContext.createSignupNotification(
+            data.fullName,
+            data.email,
+            data.role
+          );
+        }
+      } else {
+        throw new Error(response.data.message || 'Signup failed');
+      }
+    } catch (error: any) {
+      console.error('Signup error:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Signup failed';
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
     }
-    
-    // Removed the mock application creation for enterprise users.
-    // The ProfileWizard now handles actual startup creation.
-    
-    setIsLoading(false);
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('user');
+  const logout = async () => {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      await api.post('/auth/logout', { refreshToken });
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear all local data regardless of API call success
+      setUser(null);
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+    }
   };
 
   const updateUser = (updates: Partial<User>) => {

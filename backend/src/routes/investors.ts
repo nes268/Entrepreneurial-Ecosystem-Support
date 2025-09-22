@@ -1,14 +1,11 @@
 import express, { Request, Response } from 'express';
-import { Investor } from '../models/Investor';
-import { authenticate, authorize, optionalAuth, AuthRequest } from '../middleware/auth';
+import prisma from '../config/prisma';
+import { authenticate, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
-import { IUser } from '../models/User';
 import Joi from 'joi';
 
-interface OptionalAuthRequest extends Request {
-  user?: IUser;
-}
+type OptionalAuthRequest = Request & { user?: any };
 
 const router = express.Router();
 
@@ -80,77 +77,62 @@ const getInvestorsQuerySchema = Joi.object({
 // @desc    Get all investors
 // @access  Public
 router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
-  const { page, limit, focusAreas, sectors, location, isActive, isVerified, minInvestment, maxInvestment, search, sortBy, sortOrder } = req.query as any;
+  // Extract query params with proper defaults
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const focusAreas = req.query.focusAreas;
+  const sectors = req.query.sectors;
+  const location = req.query.location;
+  const isActive = req.query.isActive;
+  const isVerified = req.query.isVerified;
+  const minInvestment = req.query.minInvestment;
+  const maxInvestment = req.query.maxInvestment;
+  const search = req.query.search;
+  const sortBy = String(req.query.sortBy || 'createdAt');
+  const sortOrder = String(req.query.sortOrder || 'desc');
+  
   const skip = (page - 1) * limit;
 
-  // Build query
-  const query: any = {};
-  
-  if (focusAreas) {
-    query.focusAreas = { $in: focusAreas.split(',') };
-  }
-  
-  if (sectors) {
-    query['preferences.preferredSectors'] = { $in: sectors.split(',') };
-  }
-  
-  if (location) {
-    query.location = { $regex: location, $options: 'i' };
-  }
-  
-  if (typeof isActive === 'boolean') {
-    query.isActive = isActive;
-  }
-  
-  if (typeof isVerified === 'boolean') {
-    query.isVerified = isVerified;
-  }
-  
-  if (minInvestment) {
-    query['preferences.minInvestment'] = { $lte: minInvestment };
-  }
-  
-  if (maxInvestment) {
-    query['preferences.maxInvestment'] = { $gte: maxInvestment };
-  }
-  
+  const where: any = {};
+  if (focusAreas) where.focusAreas = { hasSome: String(focusAreas).split(',') };
+  if (sectors) where.preferences = { path: ['preferredSectors'], array_contains: String(sectors).split(',') } as any; // simplified
+  if (location) where.location = { contains: String(location), mode: 'insensitive' };
+  if (typeof isActive === 'boolean') where.isActive = isActive;
+  if (typeof isVerified === 'boolean') where.isVerified = isVerified;
+  if (minInvestment) where.preferences = { ...(where.preferences || {}), path: ['minInvestment'] } as any;
+  if (maxInvestment) where.preferences = { ...(where.preferences || {}), path: ['maxInvestment'] } as any;
   if (search) {
-    query.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { firm: { $regex: search, $options: 'i' } },
-      { backgroundSummary: { $regex: search, $options: 'i' } },
-      { position: { $regex: search, $options: 'i' } },
+    where.OR = [
+      { name: { contains: String(search), mode: 'insensitive' } },
+      { firm: { contains: String(search), mode: 'insensitive' } },
+      { backgroundSummary: { contains: String(search), mode: 'insensitive' } },
+      { position: { contains: String(search), mode: 'insensitive' } },
     ];
   }
+  if (!req.user || req.user.role !== 'ADMIN') where.isActive = true;
 
-  // Only show active investors to public
-  if (!req.user || req.user.role !== 'admin') {
-    query.isActive = true;
-  }
+  // Build orderBy with proper validation
+  const validSortFields = ['createdAt', 'name', 'firm'];
+  const actualSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+  const orderBy = [{ [actualSortBy]: sortOrder }];
+  
+  const [investors, total] = await Promise.all([
+    prisma.investor.findMany({ where, orderBy, skip, take: limit }),
+    prisma.investor.count({ where })
+  ]);
 
-  // Build sort object
-  const sort: any = {};
-  sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
-
-  const investors = await Investor.find(query)
-    .sort(sort)
-    .skip(skip)
-    .limit(limit);
-
-  const total = await Investor.countDocuments(query);
-
-  return res.json({
-    success: true,
-    data: {
-      investors,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalInvestors: total,
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
-      },
-    },
+  return res.json({ 
+    success: true, 
+    data: { 
+      investors, 
+      pagination: { 
+        currentPage: page, 
+        totalPages: Math.ceil(total / limit), 
+        totalInvestors: total, 
+        hasNext: page < Math.ceil(total / limit), 
+        hasPrev: page > 1 
+      } 
+    } 
   });
 }));
 
@@ -158,8 +140,7 @@ router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandl
 // @desc    Create investor profile
 // @access  Private
 router.post('/', authenticate, validate(createInvestorSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
-  // Check if email already exists
-  const existingInvestor = await Investor.findOne({ email: req.body.email });
+  const existingInvestor = await prisma.investor.findFirst({ where: { email: req.body.email } });
   if (existingInvestor) {
     return res.status(400).json({
       success: false,
@@ -167,14 +148,7 @@ router.post('/', authenticate, validate(createInvestorSchema), asyncHandler(asyn
     });
   }
 
-  const investorData = {
-    ...req.body,
-    userId: req.user!._id,
-  };
-
-  const investor = new Investor(investorData);
-  await investor.save();
-
+  const investor = await prisma.investor.create({ data: { ...req.body, userId: req.user!.id, focusAreas: req.body.focusAreas || [] } });
   return res.status(201).json({
     success: true,
     message: 'Investor profile created successfully',
@@ -188,7 +162,7 @@ router.post('/', authenticate, validate(createInvestorSchema), asyncHandler(asyn
 // @desc    Get investor by ID
 // @access  Public
 router.get('/:id', optionalAuth, asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
-  const investor = await Investor.findById(req.params.id);
+  const investor = await prisma.investor.findUnique({ where: { id: req.params.id } });
   
   if (!investor) {
     return res.status(404).json({
@@ -198,8 +172,8 @@ router.get('/:id', optionalAuth, asyncHandler(async (req: OptionalAuthRequest, r
   }
 
   // Only show active investors to public
-  if (!req.user || req.user.role !== 'admin') {
-    if (!investor.isActive) {
+  if (!req.user || req.user.role !== 'ADMIN') {
+    if (!investor!.isActive) {
       return res.status(403).json({
         success: false,
         message: 'Investor profile is not active',
@@ -219,7 +193,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req: OptionalAuthRequest, r
 // @desc    Update investor
 // @access  Private
 router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
-  const investor = await Investor.findById(req.params.id);
+  const investor = await prisma.investor.findUnique({ where: { id: req.params.id } });
   
   if (!investor) {
     return res.status(404).json({
@@ -229,7 +203,7 @@ router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(as
   }
 
   // Check if user can update this investor
-  if (req.user!.role !== 'admin' && (req.user!._id as any).toString() !== investor.userId?.toString()) {
+  if (req.user!.role !== 'ADMIN' && req.user!.id !== (investor!.userId || '')) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -237,8 +211,8 @@ router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(as
   }
 
   // Check if email is being changed and if it's already taken
-  if (req.body.email && req.body.email !== investor.email) {
-    const existingInvestor = await Investor.findOne({ email: req.body.email });
+  if (req.body.email && req.body.email !== investor!.email) {
+    const existingInvestor = await prisma.investor.findFirst({ where: { email: req.body.email } });
     if (existingInvestor) {
       return res.status(400).json({
         success: false,
@@ -247,9 +221,7 @@ router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(as
     }
   }
 
-  // Update investor
-  Object.assign(investor, req.body);
-  await investor.save();
+  const updated = await prisma.investor.update({ where: { id: req.params.id }, data: req.body });
 
   return res.json({
     success: true,
@@ -264,7 +236,7 @@ router.put('/:id', authenticate, validate(updateInvestorSchema), asyncHandler(as
 // @desc    Delete investor
 // @access  Private
 router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
-  const investor = await Investor.findById(req.params.id);
+  const investor = await prisma.investor.findUnique({ where: { id: req.params.id } });
   
   if (!investor) {
     return res.status(404).json({
@@ -274,14 +246,14 @@ router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: R
   }
 
   // Check if user can delete this investor
-  if (req.user!.role !== 'admin' && (req.user!._id as any).toString() !== investor.userId?.toString()) {
+  if (req.user!.role !== 'ADMIN' && req.user!.id !== (investor!.userId || '')) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
     });
   }
 
-  await Investor.findByIdAndDelete(req.params.id);
+  await prisma.investor.delete({ where: { id: req.params.id } });
 
   return res.json({
     success: true,
@@ -292,10 +264,10 @@ router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: R
 // @route   GET /api/investors/stats/overview
 // @desc    Get investor statistics overview
 // @access  Public
-router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) => {
-  const totalInvestors = await Investor.countDocuments();
-  const activeInvestors = await Investor.countDocuments({ isActive: true });
-  const verifiedInvestors = await Investor.countDocuments({ isVerified: true });
+router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response) => {
+  const totalInvestors = await prisma.investor.count();
+  const activeInvestors = await prisma.investor.count({ where: { isActive: true } });
+  const verifiedInvestors = await prisma.investor.count({ where: { isVerified: true } });
 
   // Focus areas distribution
   const focusAreasDistribution = await Investor.aggregate([

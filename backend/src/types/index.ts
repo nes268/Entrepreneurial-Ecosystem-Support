@@ -10,7 +10,7 @@ export * from '../models/Document';
 export * from '../models/Report';
 
 // Additional utility types
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   message?: string;
   data?: T;
@@ -47,7 +47,7 @@ export interface AuthRequest extends Request {
 }
 
 // User roles and permissions
-export type UserRole = 'individual' | 'enterprise' | 'admin';
+export type UserRole = 'INDIVIDUAL' | 'ENTERPRISE' | 'ADMIN';
 export type AdminLevel = 'super_admin' | 'admin' | 'moderator';
 
 // JWT Payload types
@@ -91,7 +91,7 @@ export interface NotificationData {
   type: 'info' | 'success' | 'warning' | 'error';
   userId: string;
   read?: boolean;
-  data?: any;
+  data?: unknown;
 }
 
 export interface StatsOverview {

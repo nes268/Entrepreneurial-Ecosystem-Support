@@ -1,52 +1,46 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/env';
-import { User, IUser } from '../models/User';
-import { Admin, IAdmin } from '../models/Admin';
-import { pgPool } from '../config/database';
-import { JwtPayload, UserRole, AdminLevel } from '../types';
+import prisma from '../config/prisma';
+import { JwtPayload, UserRole } from '../types';
 
-// Function to log user activity to PostgreSQL
-async function logUserActivity(
-  userId: string, 
-  activityType: string, 
-  action: string, 
-  description: string, 
-  ipAddress?: string, 
-  userAgent?: string
-): Promise<void> {
-  try {
-    // First get the pg_user id from the mongo_user_id
-    const userResult = await pgPool.query(
-      'SELECT id FROM pg_users WHERE mongo_user_id = $1',
-      [userId]
-    );
-    
-    if (userResult.rows.length === 0) {
-      console.warn(`Unable to log activity: PG user not found for mongo ID ${userId}`);
-      return;
-    }
-    
-    const pgUserId = userResult.rows[0].id;
-    
-    // Insert activity record
-    await pgPool.query(
-      `INSERT INTO user_activities 
-      (user_id, activity_type, activity_description, ip_address, user_agent) 
-      VALUES ($1, $2, $3, $4, $5)`,
-      [pgUserId, activityType, description, ipAddress, userAgent]
-    );
-  } catch (error) {
-    console.error('Failed to log user activity:', error);
-    // Don't throw - this is non-critical functionality
-  }
+// Define a User type based on what Prisma returns
+interface PrismaUser {
+  id: string;
+  email: string;
+  fullName: string;
+  username: string;
+  role: UserRole;
+  profileComplete: boolean;
+  isEmailVerified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Define extended user with _id for compatibility
+interface ExtendedUser extends PrismaUser {
+  _id?: string;
 }
 
 export interface AuthRequest extends Request {
-  user?: IUser;
-  admin?: IAdmin;
+  user?: ExtendedUser;
   userId?: string;
-  adminId?: string;
+}
+
+// Optional: user activity logging can be implemented via Prisma if needed.
+async function logUserActivity(
+  userId: string,
+  activityType: string,
+  action: string,
+  description: string,
+  ipAddress?: string,
+  userAgent?: string
+): Promise<void> {
+  // No-op for now - parameters available for future implementation
+  console.log(`User activity: ${userId} - ${activityType}:${action} - ${description}`, {
+    ipAddress,
+    userAgent
+  });
 }
 
 export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
@@ -62,8 +56,8 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     }
 
     const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
-    const user = await User.findById(decoded.userId).select('-password');
-    
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+
     if (!user) {
       res.status(401).json({ 
         success: false, 
@@ -72,22 +66,15 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
-    // If user is admin, also fetch admin profile
-    if (user.role === 'admin') {
-      const admin = await Admin.findOne({ userId: user._id });
-      if (admin) {
-        req.admin = admin;
-        req.adminId = admin._id.toString();
-      }
-    }
+    // Log user activity (optional)
+    await logUserActivity(decoded.userId, 'auth', 'token_verified', 'User authenticated successfully', req.ip, req.get('User-Agent') || undefined);
 
-    // Log user activity to PostgreSQL
-    await logUserActivity(decoded.userId, 'auth', 'token_verified', 'User authenticated successfully', req.ip, req.get('User-Agent'));
-
-    req.user = user;
-    req.userId = user._id.toString();
+    // Backward-compat shape for routes expecting _id
+    const extendedUser: ExtendedUser = { ...user, _id: user.id };
+    req.user = extendedUser;
+    req.userId = user.id;
     next();
-  } catch (error) {
+  } catch (error: unknown) {
     res.status(401).json({ 
       success: false, 
       message: 'Invalid token.',
@@ -121,11 +108,11 @@ export const authorize = (...roles: UserRole[]) => {
   };
 };
 
-// Admin-specific authorization with permission checking
-export const requireAdmin = (permission?: string) => {
+// Admin-only authorization
+export const requireAdmin = () => {
   return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.user || req.user.role !== 'admin') {
+      if (!req.user || req.user.role !== 'ADMIN') {
         res.status(403).json({ 
           success: false, 
           message: 'Access denied. Admin privileges required.' 
@@ -133,38 +120,7 @@ export const requireAdmin = (permission?: string) => {
         return;
       }
 
-      if (!req.admin) {
-        const admin = await Admin.findOne({ userId: req.user._id });
-        if (!admin) {
-          res.status(403).json({ 
-            success: false, 
-            message: 'Admin profile not found.' 
-          });
-          return;
-        }
-        req.admin = admin;
-      }
-
-      // Check if admin account is locked
-      if (req.admin.isLocked && req.admin.lockedUntil && req.admin.lockedUntil > new Date()) {
-        res.status(423).json({ 
-          success: false, 
-          message: 'Admin account is temporarily locked.' 
-        });
-        return;
-      }
-
-      // Check specific permission if required
-      if (permission && !req.admin.hasPermission(permission)) {
-        res.status(403).json({ 
-          success: false, 
-          message: `Access denied. Permission '${permission}' required.`,
-          adminLevel: req.admin.adminLevel,
-          hasPermission: false
-        });
-        return;
-      }
-
+      // No fine-grained permissions in current Prisma schema; allow admin role
       next();
     } catch (error) {
       res.status(500).json({ 
@@ -176,18 +132,16 @@ export const requireAdmin = (permission?: string) => {
   };
 };
 
-// Super admin only access
+// Super admin only access (not implemented in Prisma schema)
 export const requireSuperAdmin = () => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
-    if (!req.admin || req.admin.adminLevel !== 'super_admin') {
+    if (!req.user || req.user.role !== 'ADMIN') {
       res.status(403).json({ 
         success: false, 
-        message: 'Access denied. Super admin privileges required.',
-        adminLevel: req.admin?.adminLevel || 'none'
+        message: 'Access denied. Super admin privileges required.'
       });
       return;
     }
-
     next();
   };
 };
@@ -197,15 +151,16 @@ export const optionalAuth = async (req: AuthRequest, res: Response, next: NextFu
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (token) {
-      const decoded = jwt.verify(token, config.jwt.secret) as any;
-      const user = await User.findById(decoded.userId).select('-password');
+      const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+      const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
       if (user) {
-        req.user = user;
+        const extendedUser: ExtendedUser = { ...user, _id: user.id };
+        req.user = extendedUser;
       }
     }
     
     next();
-  } catch (error) {
+  } catch {
     // If token is invalid, continue without user
     next();
   }
