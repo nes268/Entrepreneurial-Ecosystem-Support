@@ -112,7 +112,7 @@ export const authorize = (...roles: UserRole[]) => {
 export const requireAdmin = () => {
   return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (!req.user || req.user.role !== 'admin') {
+      if (!req.user || req.user.role !== 'ADMIN') {
         res.status(403).json({ 
           success: false, 
           message: 'Access denied. Admin privileges required.' 
@@ -135,7 +135,7 @@ export const requireAdmin = () => {
 // Super admin only access (not implemented in Prisma schema)
 export const requireSuperAdmin = () => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
-    if (!req.user || req.user.role !== 'admin') {
+    if (!req.user || req.user.role !== 'ADMIN') {
       res.status(403).json({ 
         success: false, 
         message: 'Access denied. Super admin privileges required.'

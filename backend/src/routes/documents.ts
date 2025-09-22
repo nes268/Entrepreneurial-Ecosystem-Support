@@ -120,7 +120,7 @@ router.get('/', authenticate, validateQuery(getDocumentsQuerySchema), asyncHandl
     ];
   }
   // If not admin, only show user's documents or public documents
-  if (req.user && req.user.role !== 'admin') {
+  if (req.user && req.user.role !== 'ADMIN') {
     where.OR = [{ ownerId: req.user.id }, { isPublic: true }];
   }
 

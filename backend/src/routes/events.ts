@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { authenticate, requireAdmin, optionalAuth, AuthRequest } from '../middleware/auth';
 import { validate, validateQuery } from '../middleware/validation';
 import { asyncHandler } from '../middleware/errorHandler';
@@ -39,14 +40,30 @@ const getEventsQuerySchema = Joi.object({
   search: Joi.string().max(100),
   sortBy: Joi.string().valid('date', 'title', 'createdAt', 'currentAttendees').default('date'),
   sortOrder: Joi.string().valid('asc', 'desc').default('asc'),
+  filter: Joi.string().valid('upcoming', 'completed'),
 });
 
-// List events
-router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(async (req: Request & { user?: any }, res: Response) => {
-  const { page, limit, category, status, dateFrom, dateTo, search, sortBy, sortOrder } = req.query as any;
-  const skip = (page - 1) * limit;
+interface EventsQuery {
+  page?: number;
+  limit?: number;
+  category?: string;
+  status?: string;
+  dateFrom?: string | Date;
+  dateTo?: string | Date;
+  search?: string;
+  sortBy?: 'date' | 'title' | 'createdAt' | 'currentAttendees';
+  sortOrder?: 'asc' | 'desc';
+  filter?: 'upcoming' | 'completed';
+}
 
-  const where: any = {};
+// List events
+router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
+  const { page, limit, category, status, dateFrom, dateTo, search, sortBy, sortOrder, filter } = req.query as unknown as EventsQuery;
+  const pageNum = Number(page);
+  const limitNum = Number(limit);
+  const skip = (pageNum - 1) * limitNum;
+
+  const where: Prisma.EventWhereInput = {};
   if (category) where.category = { contains: String(category), mode: 'insensitive' };
   if (status) where.status = String(status);
   if (dateFrom || dateTo) {
@@ -62,20 +79,35 @@ router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(
     ];
   }
 
-  // Only show published events to public
+  // Only show published and active events to public
   if (!req.user || req.user.role !== 'ADMIN') {
     where.status = 'published';
     where.isActive = true;
   }
 
-  const orderBy = [{ [String(sortBy)]: String(sortOrder) }];
+  // Apply filter shortcuts
+  const now = new Date();
+  if (filter === 'upcoming' || filter === 'completed') {
+    const df: Prisma.DateTimeFilter = {};
+    if (typeof where.date === 'object' && where.date !== null && !('equals' in where.date)) {
+      // merge if previous dateFrom/dateTo applied above
+      Object.assign(df, where.date as Prisma.DateTimeFilter);
+    }
+    if (filter === 'upcoming') df.gte = now;
+    if (filter === 'completed') df.lt = now;
+    where.date = df;
+  }
+
+  const orderBy: Prisma.EventOrderByWithRelationInput[] = [
+    { [String(sortBy || 'date')]: String(sortOrder || 'asc') } as Prisma.EventOrderByWithRelationInput,
+  ];
 
   const [events, total] = await Promise.all([
     prisma.event.findMany({
       where,
-      orderBy: orderBy as any,
+      orderBy,
       skip,
-      take: Number(limit),
+      take: limitNum,
     }),
     prisma.event.count({ where }),
   ]);
@@ -85,18 +117,40 @@ router.get('/', optionalAuth, validateQuery(getEventsQuerySchema), asyncHandler(
     data: {
       events,
       pagination: {
-        currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
         totalEvents: total,
-        hasNext: Number(page) < Math.ceil(total / Number(limit)),
-        hasPrev: Number(page) > 1,
+        hasNext: pageNum < Math.ceil(total / limitNum),
+        hasPrev: pageNum > 1,
       },
     },
   });
 }));
 
+// Categories list (used by frontend) - placed before dynamic :id route
+router.get('/categories', asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  const categories = await prisma.event.findMany({ distinct: ['category'], select: { category: true }, where: { status: 'published', isActive: true } });
+  const list = categories.map(c => c.category).filter(Boolean);
+  res.json({ success: true, data: { categories: list } });
+}));
+
+// Stats overview - placed before dynamic :id route
+router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+  const totalEvents = await prisma.event.count();
+  const publishedEvents = await prisma.event.count({ where: { status: 'published' } });
+  const now = new Date();
+  const upcomingEvents = await prisma.event.count({ where: { status: 'published', date: { gte: now } } });
+  const pastEvents = await prisma.event.count({ where: { status: 'published', date: { lt: now } } });
+
+  const categoryAgg = await prisma.event.groupBy({ by: ['category'], _count: { _all: true } });
+  const sortedAgg = (categoryAgg as Array<{ category: string; _count: { _all: number } }>).sort(
+    (a, b) => b._count._all - a._count._all
+  ).slice(0, 10);
+  res.json({ success: true, data: { totalEvents, publishedEvents, upcomingEvents, pastEvents, categoryDistribution: sortedAgg } });
+}));
+
 // Create event
-router.post('/', authenticate, validate(createEventSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/', authenticate, validate(createEventSchema), asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const event = await prisma.event.create({
     data: {
       userId: req.user!.id,
@@ -115,27 +169,31 @@ router.post('/', authenticate, validate(createEventSchema), asyncHandler(async (
 }));
 
 // Get event by id
-router.get('/:id', optionalAuth, asyncHandler(async (req: Request & { user?: any }, res: Response) => {
+router.get('/:id', optionalAuth, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const event = await prisma.event.findUnique({ where: { id: req.params.id } });
   if (!event) {
-    return res.status(404).json({ success: false, message: 'Event not found' });
+    res.status(404).json({ success: false, message: 'Event not found' });
+    return;
   }
   if (!req.user || req.user.role !== 'ADMIN') {
     if (event.status !== 'published' || !event.isActive) {
-      return res.status(403).json({ success: false, message: 'Event is not available' });
+      res.status(403).json({ success: false, message: 'Event is not available' });
+      return;
     }
   }
   res.json({ success: true, data: { event } });
 }));
 
 // Update event
-router.put('/:id', authenticate, validate(updateEventSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.put('/:id', authenticate, validate(updateEventSchema), asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const event = await prisma.event.findUnique({ where: { id: req.params.id } });
   if (!event) {
-    return res.status(404).json({ success: false, message: 'Event not found' });
+    res.status(404).json({ success: false, message: 'Event not found' });
+    return;
   }
   if (req.user!.role !== 'ADMIN' && event.userId !== req.user!.id) {
-    return res.status(403).json({ success: false, message: 'Access denied' });
+    res.status(403).json({ success: false, message: 'Access denied' });
+    return;
   }
 
   const updated = await prisma.event.update({ where: { id: req.params.id }, data: req.body });
@@ -143,20 +201,22 @@ router.put('/:id', authenticate, validate(updateEventSchema), asyncHandler(async
 }));
 
 // Delete event
-router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const event = await prisma.event.findUnique({ where: { id: req.params.id } });
   if (!event) {
-    return res.status(404).json({ success: false, message: 'Event not found' });
+    res.status(404).json({ success: false, message: 'Event not found' });
+    return;
   }
   if (req.user!.role !== 'ADMIN' && event.userId !== req.user!.id) {
-    return res.status(403).json({ success: false, message: 'Access denied' });
+    res.status(403).json({ success: false, message: 'Access denied' });
+    return;
   }
   await prisma.event.delete({ where: { id: req.params.id } });
   res.json({ success: true, message: 'Event deleted successfully' });
 }));
 
 // Participants list (admin only)
-router.get('/:id/participants', authenticate, requireAdmin(), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.get('/:id/participants', authenticate, requireAdmin(), asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const attendees = await prisma.eventAttendee.findMany({
     where: { eventId: req.params.id },
     include: { user: { select: { id: true, fullName: true, email: true, username: true, role: true } } },
@@ -165,13 +225,22 @@ router.get('/:id/participants', authenticate, requireAdmin(), asyncHandler(async
 }));
 
 // Register for event
-router.post('/:id/register', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/:id/register', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const event = await prisma.event.findUnique({ where: { id: req.params.id } });
-  if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
-  if (event.status !== 'published' || !event.isActive) return res.status(400).json({ success: false, message: 'Event is not available for registration' });
+  if (!event) {
+    res.status(404).json({ success: false, message: 'Event not found' });
+    return;
+  }
+  if (event.status !== 'published' || !event.isActive) {
+    res.status(400).json({ success: false, message: 'Event is not available for registration' });
+    return;
+  }
 
   const existing = await prisma.eventAttendee.findUnique({ where: { eventId_userId: { eventId: event.id, userId: req.user!.id } } });
-  if (existing) return res.status(400).json({ success: false, message: 'You are already registered for this event' });
+  if (existing) {
+    res.status(400).json({ success: false, message: 'You are already registered for this event' });
+    return;
+  }
 
   await prisma.eventAttendee.create({ data: { eventId: event.id, userId: req.user!.id } });
   const count = await prisma.eventAttendee.count({ where: { eventId: event.id } });
@@ -181,31 +250,24 @@ router.post('/:id/register', authenticate, asyncHandler(async (req: AuthRequest,
 }));
 
 // Unregister from event
-router.post('/:id/unregister', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/:id/unregister', authenticate, asyncHandler(async (req: AuthRequest, res: Response): Promise<void> => {
   const event = await prisma.event.findUnique({ where: { id: req.params.id } });
-  if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
+  if (!event) {
+    res.status(404).json({ success: false, message: 'Event not found' });
+    return;
+  }
 
   const existing = await prisma.eventAttendee.findUnique({ where: { eventId_userId: { eventId: event.id, userId: req.user!.id } } });
-  if (!existing) return res.status(400).json({ success: false, message: 'You are not registered for this event' });
+  if (!existing) {
+    res.status(400).json({ success: false, message: 'You are not registered for this event' });
+    return;
+  }
 
   await prisma.eventAttendee.delete({ where: { eventId_userId: { eventId: event.id, userId: req.user!.id } } });
   const count = await prisma.eventAttendee.count({ where: { eventId: event.id } });
   await prisma.event.update({ where: { id: event.id }, data: { currentAttendees: count } });
 
   res.json({ success: true, message: 'Successfully unregistered from the event' });
-}));
-
-// Stats overview
-router.get('/stats/overview', asyncHandler(async (_req, res) => {
-  const totalEvents = await prisma.event.count();
-  const publishedEvents = await prisma.event.count({ where: { status: 'published' } });
-  const now = new Date();
-  const upcomingEvents = await prisma.event.count({ where: { status: 'published', date: { gte: now } } });
-  const pastEvents = await prisma.event.count({ where: { status: 'published', date: { lt: now } } });
-
-  const categoryAgg = await prisma.event.groupBy({ by: ['category'], _count: { _all: true }, orderBy: { _count: { _all: 'desc' } }, take: 10 });
-
-  res.json({ success: true, data: { totalEvents, publishedEvents, upcomingEvents, pastEvents, categoryDistribution: categoryAgg } });
 }));
 
 export default router;

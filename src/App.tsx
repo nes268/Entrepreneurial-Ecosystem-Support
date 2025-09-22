@@ -49,7 +49,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
   if (user) {
     if (user.role === 'admin') {
-      return <Navigate to="/dashboard/admin" replace />;
+      return <Navigate to="/admin/dashboard" replace />;
     }
     if (user.profileComplete) {
       return <Navigate to="/dashboard" replace />;

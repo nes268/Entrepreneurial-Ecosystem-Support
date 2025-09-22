@@ -6,7 +6,7 @@ import api from '../services/api';
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<{ redirectUrl?: string }>;
   signup: (data: SignupData) => Promise<void>;
   logout: () => void;
   updateUser: (updates: Partial<User>) => void;
@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<{ redirectUrl?: string }> => {
     setIsLoading(true);
     try {
       // Determine if this is an admin login
@@ -88,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await api.post(endpoint, { email, password });
       
       if (response.data.success) {
-        const { user: userData, accessToken, refreshToken } = response.data.data;
+        const { user: userData, accessToken, refreshToken, redirectUrl } = response.data.data;
         
         // Store tokens
         localStorage.setItem('token', accessToken);
@@ -111,12 +111,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         setUser(user);
         localStorage.setItem('user', JSON.stringify(user));
+        
+        return { redirectUrl };
       } else {
         throw new Error(response.data.message || 'Login failed');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Login failed';
+      const errorMessage = (error as any).response?.data?.message || (error as Error).message || 'Login failed';
       throw new Error(errorMessage);
     } finally {
       setIsLoading(false);
