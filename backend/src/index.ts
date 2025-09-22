@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
-import { connectDB } from './config/database';
+import { connectDB, setupGracefulShutdown } from './config/database';
 import { errorHandler } from './middleware/errorHandler';
 import { notFound } from './middleware/notFound';
 
@@ -12,14 +12,13 @@ import { notFound } from './middleware/notFound';
 import authRoutes from './routes/auth';
 import eventRoutes from './routes/events';
 import documentRoutes from './routes/documents';
-// TODO: Migrate remaining routes to Prisma and re-enable
 import userRoutes from './routes/users';
 import startupRoutes from './routes/startups';
-// import mentorRoutes from './routes/mentors';
-// import investorRoutes from './routes/investors';
-// import reportRoutes from './routes/reports';
-// import profileRoutes from './routes/profile';
-// import adminRoutes from './routes/admin';
+import mentorRoutes from './routes/mentors';
+import investorRoutes from './routes/investors';
+import reportRoutes from './routes/reports';
+import adminRoutes from './routes/admin';
+// import profileRoutes from './routes/profile'; // TODO: Decide if needed or merge with startup routes
 
 // Load environment variables
 dotenv.config();
@@ -68,19 +67,17 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes (migrated)
+// API routes (all migrated to Prisma)
 app.use('/api/auth', authRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/documents', documentRoutes);
-
-// TODO: Re-enable after migration
 app.use('/api/users', userRoutes);
 app.use('/api/startups', startupRoutes);
-// app.use('/api/mentors', mentorRoutes);
-// app.use('/api/investors', investorRoutes);
-// app.use('/api/reports', reportRoutes);
-// app.use('/api/profile', profileRoutes);
-// app.use('/api/admin', adminRoutes);
+app.use('/api/mentors', mentorRoutes);
+app.use('/api/investors', investorRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/admin', adminRoutes);
+// app.use('/api/profile', profileRoutes); // TODO: Decide if needed or merge with startup routes
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -94,6 +91,9 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use(notFound);
 app.use(errorHandler);
+
+// Setup graceful shutdown
+setupGracefulShutdown();
 
 // Start server
 app.listen(PORT, () => {

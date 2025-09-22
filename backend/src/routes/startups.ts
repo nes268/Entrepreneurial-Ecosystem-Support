@@ -179,8 +179,16 @@ router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response) 
   const pendingStartups = await prisma.startup.count({ where: { applicationStatus: 'DRAFT' } });
   const dropoutStartups = await prisma.startup.count({ where: { status: 'DROPOUT' } });
 
-  const trlDistribution = await prisma.startup.groupBy({ by: ['trlLevel'], _count: { _all: true }, orderBy: { trlLevel: 'asc' } });
-  const sectorDistribution = await prisma.startup.groupBy({ by: ['sector'], _count: { _all: true }, orderBy: { _count: { _all: 'desc' } }, take: 10 });
+  const trlDistribution = await prisma.startup.groupBy({ 
+    by: ['trlLevel'], 
+    _count: { _all: true },
+    orderBy: { trlLevel: 'asc' } 
+  });
+  
+  const sectorDistribution = await prisma.startup.groupBy({ 
+    by: ['sector'], 
+    _count: { _all: true }
+  });
 
   res.json({ success: true, data: { totalStartups, innovationStartups, incubationStartups, activeStartups, approvedStartups, pendingStartups, dropoutStartups, trlDistribution, sectorDistribution } });
 }));
@@ -237,143 +245,59 @@ router.get('/with-documents', authenticate, requireAdmin(), validateQuery(getSta
 
   res.json({ success: true, data: { startups: startupsWithDocuments, pagination: { currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), totalStartups: total, hasNext: Number(page) < Math.ceil(total / Number(limit)), hasPrev: Number(page) > 1 } } });
 }));
-            description: 'Company incorporation certificate',
-            source: 'profile'
-          });
-        }
-        if (profile.msmeCert) {
-          profileDocuments.push({
-            name: 'MSME Certificate',
-            type: 'pdf',
-            category: 'profile',
-            uploadDate: profile.createdAt,
-            description: 'MSME registration certificate',
-            source: 'profile'
-          });
-        }
-        if (profile.dpiitCert) {
-          profileDocuments.push({
-            name: 'DPIIT Certificate',
-            type: 'pdf',
-            category: 'profile',
-            uploadDate: profile.createdAt,
-            description: 'DPIIT recognition certificate',
-            source: 'profile'
-          });
-        }
-        if (profile.mouPartnership) {
-          profileDocuments.push({
-            name: 'MoU/Partnership',
-            type: 'pdf',
-            category: 'profile',
-            uploadDate: profile.createdAt,
-            description: 'Partnership agreements or MoUs',
-            source: 'profile'
-          });
-        }
-        if (profile.balanceSheet) {
-          profileDocuments.push({
-            name: 'Balance Sheet',
-            type: 'pdf',
-            category: 'financial',
-            uploadDate: profile.createdAt,
-            description: 'Financial balance sheet',
-            source: 'profile'
-          });
-        }
-        if (profile.businessDocuments && profile.businessDocuments.length > 0) {
-          profile.businessDocuments.forEach((doc, index) => {
-            profileDocuments.push({
-              name: `Business Document ${index + 1}`,
-              type: 'pdf',
-              category: 'startup',
-              uploadDate: profile.createdAt,
-              description: 'Business related document',
-              source: 'profile'
-            });
-          });
-        }
-      }
-
-      return {
-        ...startup.toObject(),
-        documents: [...documents, ...profileDocuments],
-        documentCount: documents.length + profileDocuments.length
-      };
-    })
-  );
-
-  const total = await Startup.countDocuments(query);
-
-  res.json({
-    success: true,
-    data: {
-      startups: startupsWithDocuments,
-      pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
-        totalStartups: total,
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
-      },
-    },
-  });
-}));
 
 // @route   GET /api/startups
 // @desc    Get all startups
 // @access  Public (with optional auth for filtering)
-router.get('/', optionalAuth, validateQuery(getStartupsQuerySchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.get('/', optionalAuth, validateQuery(getStartupsQuerySchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   const { page, limit, type, status, applicationStatus, sector, trlLevel, search, sortBy, sortOrder } = req.query as any;
   const skip = (page - 1) * limit;
 
-  // Build query
-  const query: any = {};
-  
-  if (type) query.type = type;
-  if (status) query.status = status;
-  if (applicationStatus) query.applicationStatus = applicationStatus;
-  if (sector) query.sector = { $regex: sector, $options: 'i' };
-  if (trlLevel) query.trlLevel = trlLevel;
+  const where: any = {};
+  if (type) where.type = String(type).toUpperCase();
+  if (status) where.status = String(status).toUpperCase();
+  if (applicationStatus) where.applicationStatus = String(applicationStatus).toUpperCase();
+  if (sector) where.sector = { contains: String(sector), mode: 'insensitive' };
+  if (trlLevel) where.trlLevel = Number(trlLevel);
   
   if (search) {
-    query.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { founder: { $regex: search, $options: 'i' } },
-      { sector: { $regex: search, $options: 'i' } },
-      { description: { $regex: search, $options: 'i' } },
+    where.OR = [
+      { name: { contains: String(search), mode: 'insensitive' } },
+      { founder: { contains: String(search), mode: 'insensitive' } },
+      { sector: { contains: String(search), mode: 'insensitive' } },
+      { description: { contains: String(search), mode: 'insensitive' } },
     ];
   }
 
   // If not admin, only show approved startups
-  if (!req.user || req.user.role !== 'admin') {
-    query.applicationStatus = 'approved';
+  if (!req.user || req.user.role !== 'ADMIN') {
+    where.applicationStatus = 'APPROVED';
   }
 
-  // Build sort object
-  const sort: any = {};
-  sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
-
-  const startups = await Startup.find(query)
-    .populate('userId', 'fullName email username')
-    .populate('assignedMentor', 'name role email')
-    .populate('assignedInvestor', 'name firm email')
-    .sort(sort)
-    .skip(skip)
-    .limit(limit);
-
-  const total = await Startup.countDocuments(query);
+  const orderBy = [{ [String(sortBy)]: String(sortOrder) }];
+  const [startups, total] = await Promise.all([
+    prisma.startup.findMany({
+      where,
+      orderBy: orderBy as any,
+      skip,
+      take: Number(limit),
+      include: {
+        user: { select: { fullName: true, email: true, username: true } }
+      }
+    }),
+    prisma.startup.count({ where })
+  ]);
 
   res.json({
     success: true,
     data: {
       startups,
       pagination: {
-        currentPage: page,
-        totalPages: Math.ceil(total / limit),
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
         totalStartups: total,
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
+        hasNext: Number(page) < Math.ceil(total / Number(limit)),
+        hasPrev: Number(page) > 1,
       },
     },
   });
@@ -382,181 +306,6 @@ router.get('/', optionalAuth, validateQuery(getStartupsQuerySchema), asyncHandle
 // @route   POST /api/startups
 // @desc    Create new startup application
 // @access  Private
-router.post('/', authenticate, validate(createStartupSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || !req.user._id) {
-    return res.status(401).json({ success: false, message: 'Not authorized to create startup' });
-  }
-  const startupData = {
-    ...req.body,
-    userId: req.user._id,
-  };
-
-  const startup = new Startup(startupData);
-  await startup.save();
-
-  // Populate user data
-  await startup.populate('userId', 'fullName email username');
-
-  return res.status(201).json({
-    success: true,
-    message: 'Startup application created successfully',
-    data: {
-      startup,
-    },
-  });
-}));
-
-// @route   GET /api/startups/:id
-// @desc    Get startup by ID
-// @access  Public
-router.get('/:id', optionalAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const startup = await Startup.findById(req.params.id)
-    .populate('userId', 'fullName email username')
-    .populate('assignedMentor', 'name role email')
-    .populate('assignedInvestor', 'name firm email');
-  
-  if (!startup) {
-    return res.status(404).json({
-      success: false,
-      message: 'Startup not found',
-    });
-  }
-
-  // Check if user can view this startup
-  if (!req.user || (req.user.role !== 'admin' && (req.user._id as any).toString() !== startup.userId._id.toString())) {
-    // Only show approved startups to non-owners
-    if (startup.applicationStatus !== 'approved') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied',
-      });
-    }
-  }
-
-  return res.json({
-    success: true,
-    data: {
-      startup,
-    },
-  });
-}));
-
-// @route   PUT /api/startups/:id
-// @desc    Update startup
-// @access  Private
-router.put('/:id', authenticate, validate(updateStartupSchema), asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const startup = await Startup.findById(req.params.id) as IStartup;
-  
-  if (!startup) {
-    return res.status(404).json({
-      success: false,
-      message: 'Startup not found',
-    });
-  }
-
-  if (!req.user || (req.user.role !== 'admin' && (req.user._id as any).toString() !== startup.userId.toString())) {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied',
-    });
-  }
-
-  // Handle funding history if new funding info is provided
-  if (req.body.alreadyFunded && req.body.fundingAmount && req.body.fundingSource && req.body.fundingDate && req.body.fundingStage) {
-    if (!startup.fundingHistory) {
-      startup.fundingHistory = []; // Initialize if undefined
-    }
-    startup.fundingHistory.push({
-      amount: req.body.fundingAmount,
-      source: req.body.fundingSource,
-      date: new Date(req.body.fundingDate),
-      stage: req.body.fundingStage,
-    });
-    // Remove temporary funding fields from req.body to avoid direct assignment
-    delete req.body.fundingAmount;
-    delete req.body.fundingSource;
-    delete req.body.fundingDate;
-    delete req.body.fundingStage;
-    delete req.body.alreadyFunded;
-  }
-
-  // Update startup
-  Object.assign(startup, req.body);
-  await startup.save();
-
-  // Populate user data
-  await startup.populate('userId', 'fullName email username');
-  await startup.populate('assignedMentor', 'name role email');
-  await startup.populate('assignedInvestor', 'name firm email');
-
-  return res.json({
-    success: true,
-    message: 'Startup updated successfully',
-    data: {
-      startup,
-    },
-  });
-}));
-
-// @route   DELETE /api/startups/:id
-// @desc    Delete startup
-// @access  Private
-router.delete('/:id', authenticate, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const startup = await Startup.findById(req.params.id);
-  
-  if (!startup) {
-    return res.status(404).json({
-      success: false,
-      message: 'Startup not found',
-    });
-  }
-
-  if (!req.user || (req.user.role !== 'admin' && (req.user._id as any).toString() !== startup.userId.toString())) {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied',
-    });
-  }
-
-  await Startup.findByIdAndDelete(req.params.id);
-
-  return res.json({
-    success: true,
-    message: 'Startup deleted successfully',
-  });
-}));
-
-
-// Helper function to determine next steps
-function getNextSteps(applicationStatus: string, progress: number): string[] {
-  const steps: string[] = [];
-  
-  if (applicationStatus === 'draft') {
-    if (progress < 50) {
-      steps.push('Complete your startup information');
-      steps.push('Fill out your profile details');
-    }
-    steps.push('Submit your application for review');
-  } else if (applicationStatus === 'submitted') {
-    steps.push('Wait for admin review');
-    steps.push('Prepare for potential follow-up questions');
-  } else if (applicationStatus === 'under_review') {
-    steps.push('Application is being reviewed');
-    steps.push('You may be contacted for additional information');
-  } else if (applicationStatus === 'approved') {
-    steps.push('Welcome to the incubation program!');
-    steps.push('Connect with your assigned mentor');
-    steps.push('Start working on your milestones');
-  } else if (applicationStatus === 'rejected') {
-    steps.push('Review the feedback provided');
-    steps.push('Make necessary improvements');
-    steps.push('Consider reapplying when ready');
-  }
-  
-  return steps;
-}
-
-// Create startup
 router.post('/', authenticate, validate(createStartupSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
   const data = req.body as any;
   const created = await prisma.startup.create({
@@ -599,6 +348,30 @@ router.post('/', authenticate, validate(createStartupSchema), asyncHandler(async
     },
   });
   return res.status(201).json({ success: true, message: 'Startup created successfully', data: created });
+}));
+
+// @route   GET /api/startups/:id
+// @desc    Get startup by ID
+// @access  Public
+router.get('/:id', optionalAuth, asyncHandler(async (req: AuthRequest, res: Response) => {
+  const startup = await prisma.startup.findUnique({
+    where: { id: req.params.id },
+    include: { user: { select: { fullName: true, email: true, username: true } } }
+  });
+  
+  if (!startup) {
+    return res.status(404).json({ success: false, message: 'Startup not found' });
+  }
+
+  // Check if user can view this startup
+  if (!req.user || (req.user.role !== 'ADMIN' && req.user.id !== startup.userId)) {
+    // Only show approved startups to non-owners
+    if (startup.applicationStatus !== 'APPROVED') {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+  }
+
+  return res.json({ success: true, data: { startup } });
 }));
 
 // Update startup
@@ -647,6 +420,24 @@ router.put('/:id', authenticate, validate(updateStartupSchema), asyncHandler(asy
   } });
 
   return res.json({ success: true, message: 'Startup updated successfully', data: updated });
+}));
+
+// @route   DELETE /api/startups/:id
+// @desc    Delete startup
+// @access  Private
+router.delete('/:id', authenticate, asyncHandler(async (req: AuthRequest, res: Response) => {
+  const startup = await prisma.startup.findUnique({ where: { id: req.params.id } });
+  
+  if (!startup) {
+    return res.status(404).json({ success: false, message: 'Startup not found' });
+  }
+
+  if (startup.userId !== req.user!.id && req.user!.role !== 'ADMIN') {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+
+  await prisma.startup.delete({ where: { id: req.params.id } });
+  return res.json({ success: true, message: 'Startup deleted successfully' });
 }));
 
 export default router;

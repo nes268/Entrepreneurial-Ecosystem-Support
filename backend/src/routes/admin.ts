@@ -2,14 +2,7 @@ import express, { Request, Response } from 'express';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
 import { validate } from '../middleware/validation';
-import { User } from '../models/User';
-import { Startup } from '../models/Startup';
-import { Mentor } from '../models/Mentor';
-import { Investor } from '../models/Investor';
-import { Document } from '../models/Document';
-import { Report } from '../models/Report';
-import { Event } from '../models/Event';
-import { Profile } from '../models/Profile';
+import prisma from '../config/prisma';
 import Joi from 'joi';
 
 const router = express.Router();
@@ -39,17 +32,18 @@ const updateUserSchema = Joi.object({
 // Dashboard stats endpoint
 router.get('/stats', asyncHandler(async (req: AuthRequest, res: Response) => {
   const [userCount, startupCount, mentorCount, investorCount, eventCount] = await Promise.all([
-    User.countDocuments(),
-    Startup.countDocuments(),
-    Mentor.countDocuments(),
-    Investor.countDocuments(),
-    Event.countDocuments(),
+    prisma.user.count(),
+    prisma.startup.count(),
+    prisma.mentor.count(),
+    prisma.investor.count(),
+    prisma.event.count(),
   ]);
   
-  const recentStartups = await Startup.find()
-    .sort({ createdAt: -1 })
-    .limit(5)
-    .populate('userId', 'fullName email');
+  const recentStartups = await prisma.startup.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+    include: { user: { select: { fullName: true, email: true } } },
+  });
   
   const stats = {
     overview: {
@@ -77,26 +71,41 @@ router.get('/users', asyncHandler(async (req: AuthRequest, res: Response) => {
   const search = req.query.search as string;
   const role = req.query.role as string;
   
-  let query: any = {};
+  const where: any = {};
   
   if (search) {
-    query.$or = [
-      { fullName: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-      { username: { $regex: search, $options: 'i' } },
+    where.OR = [
+      { fullName: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+      { username: { contains: search, mode: 'insensitive' } },
     ];
   }
   
   if (role) {
-    query.role = role;
+    where.role = role;
   }
   
-  const total = await User.countDocuments(query);
-  const users = await User.find(query)
-    .select('-password')
-    .sort({ createdAt: -1 })
-    .limit(limit * 1)
-    .skip((page - 1) * limit);
+  const [total, users] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        username: true,
+        role: true,
+        profileComplete: true,
+        isEmailVerified: true,
+        lastLogin: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: (page - 1) * limit,
+    }),
+  ]);
   
   res.json({
     success: true,
@@ -110,7 +119,21 @@ router.get('/users', asyncHandler(async (req: AuthRequest, res: Response) => {
 }));
 
 router.get('/users/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const user = await User.findById(req.params.id).select('-password');
+  const user = await prisma.user.findUnique({
+    where: { id: req.params.id },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      username: true,
+      role: true,
+      profileComplete: true,
+      isEmailVerified: true,
+      lastLogin: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
   
   if (!user) {
     return res.status(404).json({
@@ -129,8 +152,10 @@ router.post('/users', validate(createUserSchema), asyncHandler(async (req: AuthR
   const { fullName, email, username, password, role } = req.body;
   
   // Check if user already exists
-  const existingUser = await User.findOne({
-    $or: [{ email }, { username }]
+  const existingUser = await prisma.user.findFirst({
+    where: {
+      OR: [{ email }, { username }]
+    }
   });
   
   if (existingUser) {
@@ -140,30 +165,51 @@ router.post('/users', validate(createUserSchema), asyncHandler(async (req: AuthR
     });
   }
   
-  const user = new User({
-    fullName,
-    email,
-    username,
-    password,
-    role,
-    isEmailVerified: true, // Admin-created users are pre-verified
-  });
+  // Hash password
+  const bcrypt = require('bcryptjs');
+  const salt = await bcrypt.genSalt(12);
+  const passwordHash = await bcrypt.hash(password, salt);
   
-  await user.save();
+  const user = await prisma.user.create({
+    data: {
+      fullName,
+      email,
+      username,
+      passwordHash,
+      role: role.toUpperCase(), // Convert to match Prisma enum
+      isEmailVerified: true, // Admin-created users are pre-verified
+    },
+  });
   
   res.status(201).json({
     success: true,
     message: 'User created successfully',
-    data: { user: user.toJSON() },
+    data: { user: { ...user, passwordHash: undefined } },
   });
 }));
 
 router.put('/users/:id', validate(updateUserSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
-  const user = await User.findByIdAndUpdate(
-    req.params.id,
-    { ...req.body, updatedAt: new Date() },
-    { new: true, runValidators: true }
-  ).select('-password');
+  const updateData: any = { ...req.body };
+  if (updateData.role) {
+    updateData.role = updateData.role.toUpperCase(); // Convert to match Prisma enum
+  }
+  
+  const user = await prisma.user.update({
+    where: { id: req.params.id },
+    data: updateData,
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      username: true,
+      role: true,
+      profileComplete: true,
+      isEmailVerified: true,
+      lastLogin: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  }).catch(() => null);
   
   if (!user) {
     return res.status(404).json({
@@ -180,7 +226,8 @@ router.put('/users/:id', validate(updateUserSchema), asyncHandler(async (req: Au
 }));
 
 router.delete('/users/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const user = await User.findByIdAndDelete(req.params.id);
+  // Check if user exists first
+  const user = await prisma.user.findUnique({ where: { id: req.params.id } });
   
   if (!user) {
     return res.status(404).json({
@@ -189,9 +236,21 @@ router.delete('/users/:id', asyncHandler(async (req: AuthRequest, res: Response)
     });
   }
   
-  // Also delete associated profile and startup data
-  await Profile.findOneAndDelete({ userId: user._id });
-  await Startup.findOneAndDelete({ userId: user._id });
+  // Delete associated data in a transaction
+  await prisma.$transaction(async (tx) => {
+    // Delete associated profiles
+    await tx.profile.deleteMany({ where: { userId: req.params.id } });
+    // Delete associated startups
+    await tx.startup.deleteMany({ where: { userId: req.params.id } });
+    // Delete associated mentors
+    await tx.mentor.deleteMany({ where: { userId: req.params.id } });
+    // Delete associated investors
+    await tx.investor.deleteMany({ where: { userId: req.params.id } });
+    // Delete user sessions
+    await tx.session.deleteMany({ where: { userId: req.params.id } });
+    // Finally delete the user
+    await tx.user.delete({ where: { id: req.params.id } });
+  });
   
   res.json({
     success: true,
@@ -207,32 +266,38 @@ router.get('/startups', asyncHandler(async (req: AuthRequest, res: Response) => 
   const status = req.query.status as string;
   const type = req.query.type as string;
   
-  let query: any = {};
+  const where: any = {};
   
   if (search) {
-    query.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { founder: { $regex: search, $options: 'i' } },
-      { sector: { $regex: search, $options: 'i' } },
+    where.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { founder: { contains: search, mode: 'insensitive' } },
+      { sector: { contains: search, mode: 'insensitive' } },
     ];
   }
   
   if (status) {
-    query.status = status;
+    where.status = status;
   }
   
   if (type) {
-    query.type = type;
+    where.type = type;
   }
   
-  const total = await Startup.countDocuments(query);
-  const startups = await Startup.find(query)
-    .populate('userId', 'fullName email')
-    .populate('assignedMentor', 'name email')
-    .populate('assignedInvestor', 'name firm')
-    .sort({ createdAt: -1 })
-    .limit(limit * 1)
-    .skip((page - 1) * limit);
+  const [total, startups] = await Promise.all([
+    prisma.startup.count({ where }),
+    prisma.startup.findMany({
+      where,
+      include: {
+        user: { select: { fullName: true, email: true } },
+        assignedMentor: { select: { name: true, email: true } },
+        assignedInvestor: { select: { name: true, firm: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: (page - 1) * limit,
+    }),
+  ]);
   
   res.json({
     success: true,
@@ -246,10 +311,14 @@ router.get('/startups', asyncHandler(async (req: AuthRequest, res: Response) => 
 }));
 
 router.get('/startups/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const startup = await Startup.findById(req.params.id)
-    .populate('userId', 'fullName email')
-    .populate('assignedMentor', 'name email role')
-    .populate('assignedInvestor', 'name firm email');
+  const startup = await prisma.startup.findUnique({
+    where: { id: req.params.id },
+    include: {
+      user: { select: { fullName: true, email: true } },
+      assignedMentor: { select: { name: true, email: true, role: true } },
+      assignedInvestor: { select: { name: true, firm: true, email: true } },
+    },
+  });
   
   if (!startup) {
     return res.status(404).json({
@@ -265,11 +334,13 @@ router.get('/startups/:id', asyncHandler(async (req: AuthRequest, res: Response)
 }));
 
 router.put('/startups/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const startup = await Startup.findByIdAndUpdate(
-    req.params.id,
-    { ...req.body, updatedAt: new Date() },
-    { new: true, runValidators: true }
-  ).populate('userId', 'fullName email');
+  const startup = await prisma.startup.update({
+    where: { id: req.params.id },
+    data: req.body,
+    include: {
+      user: { select: { fullName: true, email: true } },
+    },
+  }).catch(() => null);
   
   if (!startup) {
     return res.status(404).json({
@@ -286,7 +357,9 @@ router.put('/startups/:id', asyncHandler(async (req: AuthRequest, res: Response)
 }));
 
 router.delete('/startups/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const startup = await Startup.findByIdAndDelete(req.params.id);
+  const startup = await prisma.startup.delete({
+    where: { id: req.params.id },
+  }).catch(() => null);
   
   if (!startup) {
     return res.status(404).json({
@@ -305,17 +378,19 @@ router.delete('/startups/:id', asyncHandler(async (req: AuthRequest, res: Respon
 router.put('/startups/:id/approve', asyncHandler(async (req: AuthRequest, res: Response) => {
   const { reviewNotes, assignedMentor, assignedInvestor } = req.body;
   
-  const startup = await Startup.findByIdAndUpdate(
-    req.params.id,
-    {
+  const startup = await prisma.startup.update({
+    where: { id: req.params.id },
+    data: {
       applicationStatus: 'approved',
       status: 'active',
       reviewNotes,
-      assignedMentor,
-      assignedInvestor,
+      assignedMentorId: assignedMentor,
+      assignedInvestorId: assignedInvestor,
     },
-    { new: true }
-  ).populate('userId', 'fullName email');
+    include: {
+      user: { select: { fullName: true, email: true } },
+    },
+  }).catch(() => null);
   
   if (!startup) {
     return res.status(404).json({
@@ -334,14 +409,16 @@ router.put('/startups/:id/approve', asyncHandler(async (req: AuthRequest, res: R
 router.put('/startups/:id/reject', asyncHandler(async (req: AuthRequest, res: Response) => {
   const { reviewNotes } = req.body;
   
-  const startup = await Startup.findByIdAndUpdate(
-    req.params.id,
-    {
+  const startup = await prisma.startup.update({
+    where: { id: req.params.id },
+    data: {
       applicationStatus: 'rejected',
       reviewNotes,
     },
-    { new: true }
-  ).populate('userId', 'fullName email');
+    include: {
+      user: { select: { fullName: true, email: true } },
+    },
+  }).catch(() => null);
   
   if (!startup) {
     return res.status(404).json({
@@ -359,7 +436,7 @@ router.put('/startups/:id/reject', asyncHandler(async (req: AuthRequest, res: Re
 
 // Mentor Management
 router.get('/mentors', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const mentors = await Mentor.find().sort({ createdAt: -1 });
+  const mentors = await prisma.mentor.findMany({ orderBy: { createdAt: 'desc' } });
   res.json({
     success: true,
     data: { mentors },
@@ -367,8 +444,7 @@ router.get('/mentors', asyncHandler(async (req: AuthRequest, res: Response) => {
 }));
 
 router.post('/mentors', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const mentor = new Mentor(req.body);
-  await mentor.save();
+  const mentor = await prisma.mentor.create({ data: req.body });
   
   res.status(201).json({
     success: true,
@@ -378,11 +454,10 @@ router.post('/mentors', asyncHandler(async (req: AuthRequest, res: Response) => 
 }));
 
 router.put('/mentors/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const mentor = await Mentor.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true, runValidators: true }
-  );
+  const mentor = await prisma.mentor.update({
+    where: { id: req.params.id },
+    data: req.body,
+  }).catch(() => null);
   
   if (!mentor) {
     return res.status(404).json({
@@ -399,7 +474,9 @@ router.put('/mentors/:id', asyncHandler(async (req: AuthRequest, res: Response) 
 }));
 
 router.delete('/mentors/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const mentor = await Mentor.findByIdAndDelete(req.params.id);
+  const mentor = await prisma.mentor.delete({
+    where: { id: req.params.id },
+  }).catch(() => null);
   
   if (!mentor) {
     return res.status(404).json({
@@ -416,7 +493,7 @@ router.delete('/mentors/:id', asyncHandler(async (req: AuthRequest, res: Respons
 
 // Investor Management
 router.get('/investors', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const investors = await Investor.find().sort({ createdAt: -1 });
+  const investors = await prisma.investor.findMany({ orderBy: { createdAt: 'desc' } });
   res.json({
     success: true,
     data: { investors },
@@ -424,8 +501,7 @@ router.get('/investors', asyncHandler(async (req: AuthRequest, res: Response) =>
 }));
 
 router.post('/investors', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const investor = new Investor(req.body);
-  await investor.save();
+  const investor = await prisma.investor.create({ data: req.body });
   
   res.status(201).json({
     success: true,
@@ -435,11 +511,10 @@ router.post('/investors', asyncHandler(async (req: AuthRequest, res: Response) =
 }));
 
 router.put('/investors/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const investor = await Investor.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true, runValidators: true }
-  );
+  const investor = await prisma.investor.update({
+    where: { id: req.params.id },
+    data: req.body,
+  }).catch(() => null);
   
   if (!investor) {
     return res.status(404).json({
@@ -456,7 +531,9 @@ router.put('/investors/:id', asyncHandler(async (req: AuthRequest, res: Response
 }));
 
 router.delete('/investors/:id', asyncHandler(async (req: AuthRequest, res: Response) => {
-  const investor = await Investor.findByIdAndDelete(req.params.id);
+  const investor = await prisma.investor.delete({
+    where: { id: req.params.id },
+  }).catch(() => null);
   
   if (!investor) {
     return res.status(404).json({

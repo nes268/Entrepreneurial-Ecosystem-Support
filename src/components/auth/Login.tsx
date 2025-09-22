@@ -29,8 +29,9 @@ const Login: React.FC = () => {
 
     try {
       await login(formData.emailOrUsername, formData.password);
-    } catch (error) {
-      setErrors({ general: 'Invalid credentials' });
+    } catch (error: any) {
+      const errorMessage = error.message || 'Invalid credentials';
+      setErrors({ general: errorMessage });
     }
   };
 

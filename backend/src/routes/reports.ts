@@ -146,21 +146,21 @@ router.get('/:id/download', authenticate, asyncHandler(async (req, res) => {
   }
 
   // Check if user can access this report
-  if (req.user.role !== 'ADMIN' && req.user.id !== report!.userId && !report!.isPublic) {
+  if (req.user.role !== 'ADMIN' && req.user.id !== report.userId && !report.isPublic) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
     });
   }
 
-  if (report!.status !== 'ready') {
+  if (report.status !== 'ready') {
     return res.status(400).json({
       success: false,
       message: 'Report is not ready for download',
     });
   }
 
-  if (!report!.filePath) {
+  if (!report.filePath) {
     return res.status(404).json({
       success: false,
       message: 'Report file not found',
@@ -169,7 +169,7 @@ router.get('/:id/download', authenticate, asyncHandler(async (req, res) => {
 
   // TODO: Implement actual file download
   // For now, return a placeholder response
-  res.json({ success: true, message: 'Report download initiated', data: { downloadUrl: `/api/reports/${report!.id}/file`, fileName: report!.fileName, fileSize: report!.fileSize } });
+  res.json({ success: true, message: 'Report download initiated', data: { downloadUrl: `/api/reports/${report.id}/file`, fileName: report.fileName, fileSize: report.fileSize } });
 }));
 
 // @route   PUT /api/reports/:id
@@ -186,7 +186,7 @@ router.put('/:id', authenticate, validate(updateReportSchema), asyncHandler(asyn
   }
 
   // Check if user can update this report
-  if (req.user.role !== 'ADMIN' && req.user.id !== report!.userId) {
+  if (req.user.role !== 'ADMIN' && req.user.id !== report.userId) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -211,7 +211,7 @@ router.delete('/:id', authenticate, asyncHandler(async (req, res) => {
   }
 
   // Check if user can delete this report
-  if (req.user.role !== 'ADMIN' && req.user.id !== report!.userId) {
+  if (req.user.role !== 'ADMIN' && req.user.id !== report.userId) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -242,7 +242,7 @@ router.post('/:id/regenerate', authenticate, asyncHandler(async (req, res) => {
   }
 
   // Check if user can regenerate this report
-  if (req.user.role !== 'ADMIN' && req.user.id !== report!.userId) {
+  if (req.user.role !== 'ADMIN' && req.user.id !== report.userId) {
     return res.status(403).json({
       success: false,
       message: 'Access denied',
@@ -250,14 +250,14 @@ router.post('/:id/regenerate', authenticate, asyncHandler(async (req, res) => {
   }
 
   // Reset report status
-  await prisma.report.update({ where: { id: req.params.id }, data: { status: 'processing', processingInfo: { startedAt: new Date(), retryCount: (report!.processingInfo as any)?.retryCount ? (report!.processingInfo as any).retryCount + 1 : 1 } } });
+  await prisma.report.update({ where: { id: req.params.id }, data: { status: 'processing', processingInfo: { startedAt: new Date(), retryCount: (report.processingInfo as any)?.retryCount ? (report.processingInfo as any).retryCount + 1 : 1 } } });
 
   // TODO: Start report generation process in background
   setTimeout(async () => {
     try {
-      await prisma.report.update({ where: { id: req.params.id }, data: { status: 'ready', processingInfo: { ...(report!.processingInfo as any), completedAt: new Date() }, fileSize: '2.5 MB', filePath: `/reports/${req.params.id}.pdf`, fileName: `${report!.name}.pdf`, mimeType: 'application/pdf' } });
+      await prisma.report.update({ where: { id: req.params.id }, data: { status: 'ready', processingInfo: { ...(report.processingInfo as any), completedAt: new Date() }, fileSize: '2.5 MB', filePath: `/reports/${req.params.id}.pdf`, fileName: `${report.name}.pdf`, mimeType: 'application/pdf' } });
     } catch (error) {
-      await prisma.report.update({ where: { id: req.params.id }, data: { status: 'error', processingInfo: { ...(report!.processingInfo as any), errorMessage: 'Report generation failed' } } });
+      await prisma.report.update({ where: { id: req.params.id }, data: { status: 'error', processingInfo: { ...(report.processingInfo as any), errorMessage: 'Report generation failed' } } });
     }
   }, 5000);
 
@@ -279,9 +279,21 @@ router.get('/stats/overview', authenticate, asyncHandler(async (req, res) => {
     prisma.report.count({ where: { ...where, isPublic: true } }),
   ]);
 
-  const typeDistribution = await prisma.report.groupBy({ by: ['type'], where, _count: { _all: true }, orderBy: { _count: { _all: 'desc' } } });
-
-  res.json({ success: true, data: { totalReports, readyReports, processingReports, errorReports, publicReports, typeDistribution } });
+  const [typeDistribution, formatDistribution, monthlyReports] = await Promise.all([
+    prisma.report.groupBy({ by: ['type'], where, _count: { _all: true }, orderBy: { _count: { _all: 'desc' } } }),
+    prisma.report.groupBy({ by: ['reportConfig'], where, _count: { _all: true } }),
+    prisma.report.groupBy({ 
+      by: ['createdAt'], 
+      where: { 
+        ...where, 
+        createdAt: { 
+          gte: new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1)
+        }
+      }, 
+      _count: { _all: true },
+      orderBy: { createdAt: 'asc' }
+    })
+  ]);
 
   res.json({
     success: true,
@@ -292,8 +304,17 @@ router.get('/stats/overview', authenticate, asyncHandler(async (req, res) => {
       errorReports,
       publicReports,
       typeDistribution,
-      formatDistribution,
-      monthlyReports,
+      formatDistribution: formatDistribution.map((item: any) => ({
+        _id: item.reportConfig?.format || 'unknown',
+        count: item._count._all
+      })),
+      monthlyReports: monthlyReports.map((item: any) => ({
+        _id: {
+          year: item.createdAt.getFullYear(),
+          month: item.createdAt.getMonth() + 1
+        },
+        count: item._count._all
+      }))
     },
   });
 }));

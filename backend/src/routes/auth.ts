@@ -84,7 +84,7 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
 
-  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as any });
+  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as UserRole });
 
   const redirectUrl = '/startup/dashboard';
 
@@ -114,13 +114,13 @@ router.post('/signup', validate(signupSchema), asyncHandler(async (req: Request,
   }
 
   const passwordHash = await bcrypt.genSalt(12).then((salt) => bcrypt.hash(password, salt));
-  const mappedRole = role === 'enterprise' ? 'ENTERPRISE' : 'INDIVIDUAL';
+  const mappedRole: UserRole = role === 'enterprise' ? 'enterprise' : 'individual';
 
   const user = await prisma.user.create({
-    data: { fullName, email, username, passwordHash, role: mappedRole as any },
+    data: { fullName, email, username, passwordHash, role: mappedRole },
   });
 
-  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as any });
+  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as UserRole });
 
   const response: ApiResponse = {
     success: true,
@@ -156,7 +156,7 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
     await revokeRefreshToken(validation.tokenId);
   }
 
-  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as any });
+  const tokens = await generateTokenPair({ id: user.id, email: user.email, role: user.role as UserRole });
 
   const response: ApiResponse = { success: true, message: 'Token refreshed successfully', data: tokens };
   return res.json(response);

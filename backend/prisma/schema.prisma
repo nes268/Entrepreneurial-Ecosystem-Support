@@ -53,6 +53,9 @@ model User {
   sessions         Session[]
   notifications    Notification[]
   eventAttendances EventAttendee[] @relation("UserEventAttendance")
+  mentors          Mentor[]  @relation("UserMentors")
+  investors        Investor[] @relation("UserInvestors")
+  reports          Report[]  @relation("UserReports")
 }
 
 model Profile {
@@ -194,7 +197,7 @@ model Notification {
 model Mentor {
   id              String   @id @default(uuid())
   userId          String?
-  user            User?    @relation(fields: [userId], references: [id])
+  user            User?    @relation("UserMentors", fields: [userId], references: [id])
   name            String
   role            String
   email           String   @unique
@@ -221,7 +224,7 @@ model Mentor {
 model Investor {
   id                String   @id @default(uuid())
   userId            String?
-  user              User?    @relation(fields: [userId], references: [id])
+  user              User?    @relation("UserInvestors", fields: [userId], references: [id])
   name              String
   firm              String
   email             String   @unique
@@ -246,7 +249,7 @@ model Investor {
 model Report {
   id             String   @id @default(uuid())
   userId         String
-  user           User     @relation(fields: [userId], references: [id])
+  user           User     @relation("UserReports", fields: [userId], references: [id])
   name           String
   type           String
   dateGenerated  DateTime @default(now())

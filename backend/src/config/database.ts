@@ -67,21 +67,29 @@ export const connectDB = async (): Promise<void> => {
   try {
     console.log('🔌 Connecting to PostgreSQL...');
     await connectPostgreSQL();
-
     console.log('✅ Database connected successfully');
-
-    // Graceful shutdown
-    process.on('SIGINT', async () => {
-      console.log('🔌 Closing database connections...');
-      await prisma.$disconnect();
-      await pgPool.end();
-      console.log('🔌 Database connections closed');
-      process.exit(0);
-    });
   } catch (error) {
     console.error('❌ Database connection failed:', error);
     process.exit(1);
   }
+};
+
+// Setup graceful shutdown handlers (call this once in main app)
+export const setupGracefulShutdown = (): void => {
+  const shutdown = async () => {
+    console.log('🔌 Closing database connections...');
+    try {
+      await prisma.$disconnect();
+      await pgPool.end();
+      console.log('🔌 Database connections closed');
+    } catch (error) {
+      console.error('Error during shutdown:', error);
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 };
 
 export default connectDB;

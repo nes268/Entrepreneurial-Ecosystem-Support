@@ -90,10 +90,10 @@ const ProfileWizard: React.FC = () => {
           createdStartup = await startupsApi.createStartupProfile(startupPayload);
         }
 
-        setStartupId(createdStartup._id); // Save the new startup ID
+        setStartupId(createdStartup.id); // Save the new startup ID
         
         // Update user context to mark profile as complete and associate startupId
-        updateUser({ profileComplete: true, startupId: createdStartup._id });
+        updateUser({ profileComplete: true, startupId: createdStartup.id });
         navigate('/dashboard');
 
       } catch (error) {

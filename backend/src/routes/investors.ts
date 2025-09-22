@@ -77,7 +77,20 @@ const getInvestorsQuerySchema = Joi.object({
 // @desc    Get all investors
 // @access  Public
 router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
-  const { page, limit, focusAreas, sectors, location, isActive, isVerified, minInvestment, maxInvestment, search, sortBy, sortOrder } = req.query as any;
+  // Extract query params with proper defaults
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const focusAreas = req.query.focusAreas;
+  const sectors = req.query.sectors;
+  const location = req.query.location;
+  const isActive = req.query.isActive;
+  const isVerified = req.query.isVerified;
+  const minInvestment = req.query.minInvestment;
+  const maxInvestment = req.query.maxInvestment;
+  const search = req.query.search;
+  const sortBy = String(req.query.sortBy || 'createdAt');
+  const sortOrder = String(req.query.sortOrder || 'desc');
+  
   const skip = (page - 1) * limit;
 
   const where: any = {};
@@ -98,13 +111,29 @@ router.get('/', optionalAuth, validateQuery(getInvestorsQuerySchema), asyncHandl
   }
   if (!req.user || req.user.role !== 'ADMIN') where.isActive = true;
 
-  const orderBy: any = [{ [String(sortBy)]: String(sortOrder) }];
+  // Build orderBy with proper validation
+  const validSortFields = ['createdAt', 'name', 'firm'];
+  const actualSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+  const orderBy = [{ [actualSortBy]: sortOrder }];
+  
   const [investors, total] = await Promise.all([
-    prisma.investor.findMany({ where, orderBy, skip, take: Number(limit) }),
+    prisma.investor.findMany({ where, orderBy, skip, take: limit }),
     prisma.investor.count({ where })
   ]);
 
-  return res.json({ success: true, data: { investors, pagination: { currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), totalInvestors: total, hasNext: Number(page) < Math.ceil(total / Number(limit)), hasPrev: Number(page) > 1 } } });
+  return res.json({ 
+    success: true, 
+    data: { 
+      investors, 
+      pagination: { 
+        currentPage: page, 
+        totalPages: Math.ceil(total / limit), 
+        totalInvestors: total, 
+        hasNext: page < Math.ceil(total / limit), 
+        hasPrev: page > 1 
+      } 
+    } 
+  });
 }));
 
 // @route   POST /api/investors

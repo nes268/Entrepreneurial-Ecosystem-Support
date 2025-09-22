@@ -88,7 +88,19 @@ const getMentorsQuerySchema = Joi.object({
 // @desc    Get all mentors
 // @access  Public
 router.get('/', optionalAuth, validateQuery(getMentorsQuerySchema), asyncHandler(async (req: OptionalAuthRequest, res: Response) => {
-  const { page, limit, sectors, expertise, location, isActive, isVerified, minRating, search, sortBy, sortOrder } = req.query as any;
+  // Extract query params with proper defaults
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const sectors = req.query.sectors;
+  const expertise = req.query.expertise;
+  const location = req.query.location;
+  const isActive = req.query.isActive;
+  const isVerified = req.query.isVerified;
+  const minRating = req.query.minRating;
+  const search = req.query.search;
+  const sortBy = String(req.query.sortBy || 'createdAt');
+  const sortOrder = String(req.query.sortOrder || 'desc');
+  
   const skip = (page - 1) * limit;
 
   const where: any = {};
@@ -109,14 +121,30 @@ router.get('/', optionalAuth, validateQuery(getMentorsQuerySchema), asyncHandler
   if (!req.user || req.user.role !== 'ADMIN') {
     where.isActive = true;
   }
-  const orderBy: any = [{ [String(sortBy)]: String(sortOrder) }];
+  
+  // Build orderBy with proper validation
+  const validSortFields = ['createdAt', 'name', 'rating'];
+  const actualSortBy = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+  const orderBy = [{ [actualSortBy]: sortOrder }];
 
   const [mentors, total] = await Promise.all([
-    prisma.mentor.findMany({ where, orderBy, skip, take: Number(limit) }),
+    prisma.mentor.findMany({ where, orderBy, skip, take: limit }),
     prisma.mentor.count({ where }),
   ]);
 
-  return res.json({ success: true, data: { mentors, pagination: { currentPage: Number(page), totalPages: Math.ceil(total / Number(limit)), totalMentors: total, hasNext: Number(page) < Math.ceil(total / Number(limit)), hasPrev: Number(page) > 1 } } });
+  return res.json({ 
+    success: true, 
+    data: { 
+      mentors, 
+      pagination: { 
+        currentPage: page, 
+        totalPages: Math.ceil(total / limit), 
+        totalMentors: total, 
+        hasNext: page < Math.ceil(total / limit), 
+        hasPrev: page > 1 
+      } 
+    } 
+  });
 }));
 
 // @route   POST /api/mentors

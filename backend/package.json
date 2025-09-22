@@ -11,7 +11,8 @@
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
     "seed:admin": "ts-node src/scripts/seedAdmin.ts",
-    "db:seed": "npm run seed:admin",
+    "seed": "ts-node prisma/seed.ts",
+    "db:seed": "npm run seed",
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
@@ -26,6 +27,9 @@
   ],
   "author": "CITBIF Team",
   "license": "MIT",
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "@types/pg": "^8.15.5",
