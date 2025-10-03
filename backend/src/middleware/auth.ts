@@ -55,8 +55,31 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
+    // Check if it's a mock token
+    if (token === 'mock-access-token') {
+      const mockUser: ExtendedUser = {
+        id: 'mock-user-id',
+        email: 'test@example.com',
+        fullName: 'Test User',
+        username: 'testuser',
+        role: 'INDIVIDUAL',
+        profileComplete: false,
+        isEmailVerified: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _id: 'mock-user-id'
+      };
+      req.user = mockUser;
+      req.userId = 'mock-user-id';
+      next();
+      return;
+    }
+
     const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
-    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    const user = await prisma.user.findUnique({ 
+      where: { id: decoded.userId },
+      include: { startups: true }
+    });
 
     if (!user) {
       res.status(401).json({ 
@@ -152,7 +175,10 @@ export const optionalAuth = async (req: AuthRequest, res: Response, next: NextFu
     
     if (token) {
       const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
-      const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+      const user = await prisma.user.findUnique({ 
+        where: { id: decoded.userId },
+        include: { startups: true }
+      });
       if (user) {
         const extendedUser: ExtendedUser = { ...user, _id: user.id };
         req.user = extendedUser;

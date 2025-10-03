@@ -7,7 +7,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ redirectUrl?: string }>;
-  signup: (data: SignupData) => Promise<void>;
+  signup: (data: SignupData) => Promise<{ redirectUrl?: string }>;
   logout: () => void;
   updateUser: (updates: Partial<User>) => void;
 }
@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 userData.role.toLowerCase() === 'enterprise' ? 'enterprise' : 'individual',
           profileComplete: userData.profileComplete,
           createdAt: userData.createdAt,
-          startupId: userData.startupId
+          startupId: userData.startups?.[0]?.id // Get the first startup ID if user has startups
         };
         setUser(user);
       }
@@ -106,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 userData.role.toLowerCase() === 'enterprise' ? 'enterprise' : 'individual',
           profileComplete: userData.profileComplete,
           createdAt: userData.createdAt,
-          startupId: userData.startupId
+          startupId: userData.startups?.[0]?.id // Get the first startup ID if user has startups
         };
         
         setUser(user);
@@ -125,13 +125,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signup = async (data: SignupData) => {
+  const signup = async (data: SignupData): Promise<{ redirectUrl?: string }> => {
     setIsLoading(true);
     try {
       const response = await api.post('/auth/signup', data);
       
       if (response.data.success) {
-        const { user: userData, accessToken, refreshToken } = response.data.data;
+        const { user: userData, accessToken, refreshToken, redirectUrl } = response.data.data;
         
         // Store tokens
         localStorage.setItem('token', accessToken);
@@ -149,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 userData.role.toLowerCase() === 'enterprise' ? 'enterprise' : 'individual',
           profileComplete: userData.profileComplete,
           createdAt: userData.createdAt,
-          startupId: userData.startupId
+          startupId: userData.startups?.[0]?.id // Get the first startup ID if user has startups
         };
         
         setUser(user);
@@ -163,6 +163,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             data.role
           );
         }
+        
+        return { redirectUrl };
       } else {
         throw new Error(response.data.message || 'Signup failed');
       }

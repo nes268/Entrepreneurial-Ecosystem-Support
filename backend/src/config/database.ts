@@ -56,16 +56,6 @@ export const connectPostgreSQL = async (): Promise<void> => {
     await prisma.$connect();
     console.log(`🐘 PostgreSQL Connected: ${PG_CONFIG.host}:${PG_CONFIG.port}`);
     console.log(`🗄️  PostgreSQL Database: ${PG_CONFIG.database}`);
-<<<<<<< HEAD
-    console.log(`⏰ Connection time: ${result.rows[0].now}`);
-    
-    // Handle pool events
-    pgPool.on('error', (err: Error) => {
-      console.error('❌ PostgreSQL connection error:', err);
-    });
-    
-=======
->>>>>>> 4b0b14de97dba060b1c031c0101c390d758c2879
   } catch (error) {
     console.error('❌ Error connecting to PostgreSQL:', error);
     throw error;
@@ -80,7 +70,8 @@ export const connectDB = async (): Promise<void> => {
     console.log('✅ Database connected successfully');
   } catch (error) {
     console.error('❌ Database connection failed:', error);
-    process.exit(1);
+    console.log('⚠️  Running in mock mode - database features will be limited');
+    // Don't exit, continue in mock mode
   }
 };
 

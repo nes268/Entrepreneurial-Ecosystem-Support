@@ -34,7 +34,11 @@ app.use(helmet());
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: [
+    process.env.CORS_ORIGIN || 'http://localhost:5173', 
+    'http://localhost:5178',
+    'http://localhost:5184'
+  ],
   credentials: process.env.CORS_CREDENTIALS === 'true' || true,
 }));
 

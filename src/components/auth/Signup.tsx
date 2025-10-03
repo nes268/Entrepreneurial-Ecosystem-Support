@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -16,6 +16,7 @@ const Signup: React.FC = () => {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { signup, isLoading } = useAuth();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +36,15 @@ const Signup: React.FC = () => {
     }
 
     try {
-      await signup(formData);
+      const result = await signup(formData);
+      
+      // Navigate to the backend-provided redirectUrl or fall back to dashboard
+      if (result.redirectUrl) {
+        navigate(result.redirectUrl);
+      } else {
+        // Fallback navigation (shouldn't normally happen)
+        navigate('/dashboard');
+      }
     } catch (error: any) {
       const errorMessage = error.message || 'Signup failed. Please try again.';
       setErrors({ general: errorMessage });
